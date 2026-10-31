@@ -215,6 +215,6 @@ final class ScanSession: ObservableObject, Identifiable {
     /// After exporting or sharing, keeps a copy in PDFLito when the settings ask for it.
     func keepCopyIfNeeded(library: DocumentLibrary) {
         guard settings.storesInApp, let cachedPDF else { return }
-        try? library.save(cachedPDF.data, named: finalName)
+        _ = try? library.save(cachedPDF.data, named: finalName)
     }
 }

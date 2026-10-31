@@ -4,15 +4,18 @@ import CoreGraphics
 enum QualityChecker {
     struct Thresholds {
         let minimumSharpness: Double
+        /// Stricter bar when the text recognition cannot confirm legibility (little or no text found).
+        let minimumSharpnessWithLittleText: Double
         let minimumConfidence: Double
     }
 
-    /// Sharpness is about 0.4 / blur radius (in pixels at `analysisLongSide`), 1.0 for perfectly crisp edges.
+    /// Measured on rendered pages (blur radius in pixels → sharpness): 0 → 0.72, 0.7 → 0.50, 1 → 0.41,
+    /// 1.5 → 0.31, 2 → 0.23, 3 → 0.16. Beyond that the value levels off around 0.15, so the limits stay above it.
     static func thresholds(for strictness: Strictness) -> Thresholds {
         switch strictness {
-        case .strict: return Thresholds(minimumSharpness: 0.22, minimumConfidence: 0.75)
-        case .normal: return Thresholds(minimumSharpness: 0.17, minimumConfidence: 0.6)
-        case .relaxed: return Thresholds(minimumSharpness: 0.13, minimumConfidence: 0.45)
+        case .strict: return Thresholds(minimumSharpness: 0.26, minimumSharpnessWithLittleText: 0.34, minimumConfidence: 0.75)
+        case .normal: return Thresholds(minimumSharpness: 0.20, minimumSharpnessWithLittleText: 0.28, minimumConfidence: 0.6)
+        case .relaxed: return Thresholds(minimumSharpness: 0.18, minimumSharpnessWithLittleText: 0.23, minimumConfidence: 0.45)
         }
     }
 
@@ -46,6 +49,9 @@ enum QualityChecker {
         }
         if characterCount >= minimumTextForConfidence {
             return meanConfidence >= limits.minimumConfidence ? .good : .unreadable
+        }
+        if let sharpness, sharpness < limits.minimumSharpnessWithLittleText {
+            return .blurry
         }
         return .littleText
     }

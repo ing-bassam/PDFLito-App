@@ -14,13 +14,17 @@ final class QualityCheckerTests: XCTestCase {
             print("SHARPNESS radius=\(radius) value=\(value)")
             values.append(value)
         }
-        for (sharper, blurrier) in zip(values, values.dropFirst()) {
-            XCTAssertGreaterThan(sharper, blurrier * 0.98)
+        // Radii 0 … 3 must give steadily falling values; beyond that the measure levels off.
+        for (sharper, blurrier) in zip(values.prefix(6), values.prefix(6).dropFirst()) {
+            XCTAssertGreaterThan(sharper, blurrier)
         }
         let threshold = QualityChecker.thresholds(for: .normal).minimumSharpness
-        XCTAssertGreaterThan(values[0], threshold)
-        XCTAssertGreaterThan(values[2], threshold, "slight softness must still pass")
-        XCTAssertLessThan(values[values.count - 1], threshold, "heavy blur must be rejected")
+        for value in values.prefix(4) {
+            XCTAssertGreaterThan(value, threshold, "slight softness (radius ≤ 1.5) must still pass")
+        }
+        for value in values.suffix(3) {
+            XCTAssertLessThan(value, threshold, "heavy blur (radius ≥ 3) must be rejected")
+        }
     }
 
     func testSharpPageIsGoodAndBlurryPageIsRejected() throws {
@@ -51,6 +55,8 @@ final class QualityCheckerTests: XCTestCase {
         XCTAssertEqual(verdict(0.5, confidence: 0.3), .unreadable)
         XCTAssertEqual(verdict(0.5, brightness: 0.1), .tooDark)
         XCTAssertEqual(verdict(0.5, characters: 5), .littleText)
+        XCTAssertEqual(verdict(0.22, characters: 5), .blurry, "without readable text a soft page needs more sharpness")
+        XCTAssertEqual(verdict(0.22), .good, "readable text confirms a slightly soft page")
         XCTAssertEqual(verdict(nil, characters: 0), .littleText)
     }
 }
