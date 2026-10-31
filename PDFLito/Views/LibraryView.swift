@@ -154,7 +154,7 @@ struct LibraryView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .searchable(text: $search, prompt: "Dokumente durchsuchen")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Dokumente durchsuchen")
     }
 
     private var emptyState: some View {

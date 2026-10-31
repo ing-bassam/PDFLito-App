@@ -20,7 +20,7 @@ shoot() {
   local name="$1"
   shift
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
-  xcrun simctl launch "$UDID" "$BUNDLE_ID" -demo YES "$@"
+  xcrun simctl launch "$UDID" "$BUNDLE_ID" -demo YES -AppleLanguages "(de)" -AppleLocale de_DE "$@"
   sleep 20
   xcrun simctl io "$UDID" screenshot "$OUT/$name.png"
   echo "Screenshot $name gespeichert"
