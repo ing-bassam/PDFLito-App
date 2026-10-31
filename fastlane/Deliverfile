@@ -1,0 +1,16 @@
+# fastlane deliver: App-Store-Texte, Screenshots und Einreichung (Build kommt aus TestFlight).
+platform("ios")
+metadata_path("./fastlane/metadata")
+screenshots_path("./fastlane/screenshots")
+force(true)
+skip_binary_upload(true)
+overwrite_screenshots(true)
+run_precheck_before_submit(false)
+precheck_include_in_app_purchases(false)
+automatic_release(true)
+submission_information({
+  add_id_info_uses_idfa: false,
+  export_compliance_uses_encryption: false,
+  content_rights_contains_third_party_content: false,
+  content_rights_has_rights: true
+})

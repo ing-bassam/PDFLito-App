@@ -1,0 +1,67 @@
+# XcodeGen-Projektbeschreibung. Das .xcodeproj wird in der CI mit `xcodegen generate` erzeugt.
+name: PDFLito
+options:
+  bundleIdPrefix: de.pdflito
+  developmentLanguage: de
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  PDFLito:
+    type: application
+    platform: iOS
+    sources:
+      - path: PDFLito
+    info:
+      path: Config/Info.plist
+      properties:
+        CFBundleDisplayName: PDFLito
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        LSApplicationCategoryType: public.app-category.productivity
+        NSCameraUsageDescription: PDFLito braucht die Kamera, um Dokumente zu scannen. Die Bilder bleiben auf deinem Gerät.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.pdflito.app
+        PRODUCT_NAME: PDFLito
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    scheme:
+      testTargets:
+        - PDFLitoTests
+
+  PDFLitoTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PDFLitoTests
+    dependencies:
+      - target: PDFLito
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: de.pdflito.app.tests
+        CODE_SIGN_STYLE: Automatic

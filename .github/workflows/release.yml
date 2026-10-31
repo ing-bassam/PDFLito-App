@@ -1,0 +1,199 @@
+name: TestFlight & App Store
+
+# Manuell starten: GitHub › Actions › "TestFlight & App Store" › Run workflow.
+# Benötigt die Secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 und die Variable TEAM_ID.
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_store:
+        description: "App-Store-Texte und Screenshots hochladen"
+        type: boolean
+        default: true
+      submit_for_review:
+        description: "Danach bei Apple zur Prüfung einreichen"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  BUNDLE_ID: de.pdflito.app
+
+jobs:
+  testflight:
+    name: Build & Upload zu TestFlight
+    runs-on: macos-26
+    timeout-minutes: 60
+    outputs:
+      build_number: ${{ steps.version.outputs.build }}
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      TEAM_ID: ${{ vars.TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zugangsdaten prüfen
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          missing=0
+          for name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 TEAM_ID; do
+            if [ -z "${!name}" ]; then echo "::error::$name fehlt"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Werkzeuge
+        run: |
+          xcodebuild -version
+          brew install xcodegen
+          command -v xcbeautify || brew install xcbeautify
+          xcodegen generate
+
+      - name: API-Schlüssel bereitstellen
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$KEY_PATH"
+          echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Build-Nummer
+        id: version
+        run: echo "build=$(( GITHUB_RUN_NUMBER * 10 + GITHUB_RUN_ATTEMPT ))" >> "$GITHUB_OUTPUT"
+
+      - name: Archivieren
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project PDFLito.xcodeproj -scheme PDFLito -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/PDFLito.xcarchive" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | xcbeautify
+
+      - name: Signieren (Apple Cloud Signing) & hochladen
+        id: upload
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/PDFLito.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            | xcbeautify
+
+      - name: Alternative - signiert archivieren & hochladen
+        if: steps.upload.outcome == 'failure'
+        run: |
+          set -o pipefail
+          AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          xcodebuild archive \
+            -project PDFLito.xcodeproj -scheme PDFLito -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/PDFLitoSigned.xcarchive" \
+            "${AUTH[@]}" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            | xcbeautify
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/PDFLitoSigned.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            "${AUTH[@]}" \
+            | xcbeautify
+
+      - name: Aufräumen
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+  screenshots:
+    name: App-Store-Screenshots
+    if: inputs.app_store
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Werkzeuge
+        run: |
+          brew install xcodegen
+          command -v xcbeautify || brew install xcbeautify
+          xcodegen generate
+      - name: Simulator wählen
+        id: sim
+        run: echo "udid=$(xcrun simctl list devices available -j | python3 scripts/pick_simulator.py)" >> "$GITHUB_OUTPUT"
+      - name: Für den Simulator bauen
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project PDFLito.xcodeproj -scheme PDFLito -configuration Release \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify
+      - name: Screenshots aufnehmen
+        run: |
+          APP=$(find build/DerivedData/Build/Products -name "PDFLito.app" -path "*iphonesimulator*" | head -1)
+          bash scripts/screenshots.sh "${{ steps.sim.outputs.udid }}" "$APP" fastlane/screenshots/de-DE
+          sips -g pixelWidth -g pixelHeight fastlane/screenshots/de-DE/*.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: fastlane/screenshots/de-DE
+
+  appstore:
+    name: App Store (Texte, Screenshots, Einreichung)
+    needs: [testflight, screenshots]
+    if: inputs.app_store
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: screenshots
+          path: fastlane/screenshots/de-DE
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - name: fastlane installieren
+        run: gem install fastlane --no-document
+      - name: Hochladen
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          BUILD_NUMBER: ${{ needs.testflight.outputs.build_number }}
+          SUBMIT: ${{ inputs.submit_for_review }}
+        run: |
+          ruby -rjson -e 'puts JSON.generate({key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key: ENV["ASC_KEY_P8"], in_house: false})' > "$RUNNER_TEMP/api_key.json"
+          fastlane deliver \
+            --api_key_path "$RUNNER_TEMP/api_key.json" \
+            --app_identifier "$BUNDLE_ID" \
+            --app_version "1.0" \
+            --build_number "$BUILD_NUMBER" \
+            --submit_for_review "$SUBMIT"
+          rm -f "$RUNNER_TEMP/api_key.json"

@@ -1,0 +1,1 @@
+scanner,dokumente,pdf,ocr,texterkennung,rechnung,belege,scannen,dateiname,komprimieren,offline

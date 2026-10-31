@@ -1,0 +1,62 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Unit-Tests & Screenshots (Simulator)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Werkzeuge
+        run: |
+          xcodebuild -version
+          brew install xcodegen
+          command -v xcbeautify || brew install xcbeautify
+          xcodegen generate
+
+      - name: Simulator wählen
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 scripts/pick_simulator.py)
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices | grep "$UDID"
+
+      - name: Tests
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild test \
+            -project PDFLito.xcodeproj -scheme PDFLito \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/DerivedData \
+            -resultBundlePath build/Tests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build/test.log | xcbeautify
+
+      - name: Messwerte
+        if: always()
+        run: grep -hE "SHARPNESS|ANALYSIS|SUGGESTIONS|PDFSIZE|PDFINK" build/test.log || true
+
+      - name: Screenshots
+        if: success()
+        run: |
+          APP=$(find build/DerivedData/Build/Products -name "PDFLito.app" -path "*iphonesimulator*" | head -1)
+          bash scripts/screenshots.sh "${{ steps.sim.outputs.udid }}" "$APP" build/screenshots
+          sips -g pixelWidth -g pixelHeight build/screenshots/*.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            build/test.log
+            build/Tests.xcresult
+            build/screenshots
+          if-no-files-found: ignore
