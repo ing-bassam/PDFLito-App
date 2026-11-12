@@ -45,6 +45,37 @@ final class QualityCheckerTests: XCTestCase {
         XCTAssertNotNil(TitleExtractor.documentDate(in: good.lines))
     }
 
+    /// A page that is sharp for the most part but smeared in one area (the phone moved during the shot)
+    /// has a fine average sharpness. It must be rejected anyway.
+    func testPartlyBlurredPageIsRejected() throws {
+        let threshold = QualityChecker.thresholds(for: .normal).minimumSharpness
+        for (document, radii) in [(DemoContent.invoice, [3.0]), (DemoContent.invoiceTerms, [3.0, 5.0])] {
+            let sharp = DemoContent.render(document)
+            for radius in radii {
+                let blurred = DemoContent.blurred(sharp, radius: radius)
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 1
+                format.opaque = true
+                let mixed = UIGraphicsImageRenderer(size: sharp.size, format: format).image { _ in
+                    sharp.draw(at: .zero)
+                    UIRectClip(CGRect(x: 0, y: 0, width: sharp.size.width, height: sharp.size.height * 0.3))
+                    blurred.draw(at: .zero)
+                }
+                let gray = try XCTUnwrap(ImageProcessor.grayscale(try XCTUnwrap(mixed.cgImage),
+                                                                  maxLongSide: QualityChecker.analysisLongSide))
+                let overall = try XCTUnwrap(QualityChecker.sharpness(of: gray))
+                let page = try XCTUnwrap(QualityChecker.pageSharpness(of: gray))
+                print("SHARPNESS partial radius=\(radius) overall=\(overall) page=\(page)")
+                XCTAssertGreaterThan(overall, threshold, "the average alone does not notice the smeared area")
+                XCTAssertLessThan(page, threshold, "a page with a smeared area must be rejected")
+            }
+            let gray = try XCTUnwrap(ImageProcessor.grayscale(try XCTUnwrap(sharp.cgImage),
+                                                              maxLongSide: QualityChecker.analysisLongSide))
+            XCTAssertGreaterThan(try XCTUnwrap(QualityChecker.pageSharpness(of: gray)), 0.5,
+                                 "an evenly sharp page must keep its high value")
+        }
+    }
+
     func testVerdictRules() {
         func verdict(_ sharpness: Double?, brightness: Double = 0.85, characters: Int = 400, confidence: Double = 0.95) -> QualityVerdict {
             QualityChecker.verdict(sharpness: sharpness, brightness: brightness, characterCount: characters,

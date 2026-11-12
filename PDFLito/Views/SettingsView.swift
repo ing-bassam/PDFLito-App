@@ -10,6 +10,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 destinationSection
+                scannerSection
                 nameSection
                 sizeSection
                 qualitySection
@@ -51,26 +52,60 @@ struct SettingsView: View {
             Picker("Speichern in", selection: destinationBinding) {
                 Text("PDFLito (auf diesem iPhone)")
                     .tag(SaveDestination.app)
-                Text(settings.folderName.map { "Ordner „\($0)“" } ?? "Eigener Ordner …")
+                Text("Google Drive – Ort beim Speichern wählen")
+                    .tag(SaveDestination.ask)
+                Text(settings.folderName.map { "Fester Ordner „\($0)“" } ?? "Fester Ordner (iCloud, OneDrive …)")
                     .tag(SaveDestination.folder)
             }
             .pickerStyle(.inline)
             .labelsHidden()
 
-            Button {
-                pickingFolder = true
-            } label: {
-                Label(settings.folderBookmark == nil ? "Ordner wählen (z. B. Google Drive) …" : "Anderen Ordner wählen …",
-                      systemImage: "folder.badge.plus")
+            if settings.destination == .folder || settings.folderBookmark != nil {
+                Button {
+                    pickingFolder = true
+                } label: {
+                    Label(settings.folderBookmark == nil ? "Ordner wählen …" : "Anderen Ordner wählen …",
+                          systemImage: "folder.badge.plus")
+                }
             }
 
-            if settings.destination == .folder {
+            if settings.destination != .app {
                 Toggle("Kopie zusätzlich in PDFLito behalten", isOn: $settings.keepCopyInApp)
             }
         } header: {
             Text("Speicherort")
         } footer: {
-            Text("Google Drive: Google-Drive-App installieren, anmelden und in der Dateien-App unter „Orte“ einschalten. Danach kannst du hier einen Drive-Ordner wählen – jeder Scan landet dann direkt dort. PDFLito selbst braucht keine Anmeldung. Genauso funktionieren iCloud Drive, OneDrive und Dropbox.")
+            Text(destinationFooter)
+        }
+    }
+
+    private var destinationFooter: String {
+        switch settings.destination {
+        case .app:
+            return "Die PDFs liegen in PDFLito und in der Dateien-App unter „Auf meinem iPhone › PDFLito“."
+        case .ask:
+            return "Google Drive erlaubt anderen Apps nicht, einen Drive-Ordner fest zu hinterlegen – deshalb ist Drive bei „Fester Ordner“ ausgegraut. So geht es trotzdem: Beim Speichern öffnet sich der Sichern-Dialog; wähle dort einmal „Google Drive“ und den Ordner. Der Dialog merkt sich den Ort, danach genügt ein Tipp auf „Sichern“. Voraussetzung: Google-Drive-App installiert, angemeldet und in der Dateien-App unter „Orte › Bearbeiten“ eingeschaltet. Alternative: „Teilen“ und dann „Drive“."
+        case .folder:
+            return "Jeder Scan landet direkt im gewählten Ordner. Das funktioniert mit iCloud Drive, OneDrive, Dropbox und „Auf meinem iPhone“. Ist der Ordner einmal nicht erreichbar, wird der Scan in PDFLito gesichert, damit nichts verloren geht."
+        }
+    }
+
+    private var scannerSection: some View {
+        Section {
+            Picker("Scanner", selection: $settings.scannerMode) {
+                ForEach(ScannerMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            if settings.scannerMode == .smart {
+                Toggle("Automatisch auslösen", isOn: $settings.autoCapture)
+            }
+        } header: {
+            Text("Kamera")
+        } footer: {
+            Text(settings.scannerMode == .smart
+                 ? "Die PDFLito-Kamera löst erst aus, wenn die Seite vollständig im Bild ist, das iPhone ruhig gehalten wird und scharf gestellt ist. Unscharfe Aufnahmen werden sofort verworfen und wiederholt."
+                 : "Der Apple-Scanner löst aus, sobald er eine Seite erkennt – das kann zu früh sein. Unscharfe Seiten werden erst nach dem Scannen markiert.")
         }
     }
 

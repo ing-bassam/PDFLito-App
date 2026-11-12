@@ -3,8 +3,49 @@ import UIKit
 import UniformTypeIdentifiers
 import VisionKit
 
-/// Apple's document camera: finds the page edges, straightens it and captures automatically.
-struct DocumentScannerView: UIViewControllerRepresentable {
+/// The document camera. By default PDFLito's own camera, which waits for a calm, focused picture;
+/// Apple's scanner stays available as an alternative in the settings.
+struct DocumentScannerView: View {
+    @ObservedObject var settings: AppSettings
+    var singlePage = false
+    var onFinish: ([UIImage]) -> Void
+    var onCancel: () -> Void
+
+    static var isAvailable: Bool {
+        ScannerViewController.isAvailable || VNDocumentCameraViewController.isSupported
+    }
+
+    var body: some View {
+        if settings.scannerMode == .apple && VNDocumentCameraViewController.isSupported {
+            AppleScannerView(onFinish: onFinish, onCancel: onCancel)
+        } else {
+            SmartScannerView(settings: settings, singlePage: singlePage, onFinish: onFinish, onCancel: onCancel)
+        }
+    }
+}
+
+struct SmartScannerView: UIViewControllerRepresentable {
+    let settings: AppSettings
+    var singlePage: Bool
+    var onFinish: ([UIImage]) -> Void
+    var onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> ScannerViewController {
+        let controller = ScannerViewController()
+        controller.strictness = settings.strictness
+        controller.autoCapture = settings.autoCapture
+        controller.singlePage = singlePage
+        controller.onFinish = onFinish
+        controller.onCancel = onCancel
+        controller.onAutoCaptureChanged = { [settings] in settings.autoCapture = $0 }
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: ScannerViewController, context: Context) {}
+}
+
+/// Apple's document camera: finds the page edges and captures as soon as it sees a page.
+struct AppleScannerView: UIViewControllerRepresentable {
     var onFinish: ([UIImage]) -> Void
     var onCancel: () -> Void
 

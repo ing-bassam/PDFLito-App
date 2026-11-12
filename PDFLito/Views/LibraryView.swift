@@ -55,7 +55,7 @@ struct LibraryView: View {
             }
         }
         .fullScreenCover(isPresented: $showScanner, onDismiss: startReviewIfNeeded) {
-            DocumentScannerView { images in
+            DocumentScannerView(settings: settings) { images in
                 scannedImages = images
                 showScanner = false
             } onCancel: {
@@ -123,6 +123,12 @@ struct LibraryView: View {
                     DocumentRow(document: document)
                 }
                 .buttonStyle(.plain)
+                .swipeActions(edge: .leading) {
+                    ShareLink(item: document.url) {
+                        Label("Teilen", systemImage: "square.and.arrow.up")
+                    }
+                    .tint(.blue)
+                }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
                         deleting = document
@@ -205,10 +211,7 @@ struct LibraryView: View {
     }
 
     private var destinationText: String {
-        if settings.destination == .folder, let name = settings.folderName {
-            return "Speichert in „\(name)“"
-        }
-        return "Speichert in PDFLito"
+        "Speichert \(settings.destinationPhrase)"
     }
 
     private var isRenaming: Binding<Bool> {
@@ -226,7 +229,7 @@ struct LibraryView: View {
             session = ScanSession(images: DemoContent.samplePages(), settings: settings)
             return
         }
-        guard VNDocumentCameraViewController.isSupported else {
+        guard DocumentScannerView.isAvailable else {
             showCameraUnavailable = true
             return
         }

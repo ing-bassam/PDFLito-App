@@ -17,6 +17,7 @@ struct ReviewView: View {
     @State private var pendingMessage: String?
     @State private var isWorking = false
     @State private var errorMessage: String?
+    @State private var saveWarning: ScanSession.SaveOutcome?
     @State private var confirmDiscard = false
     @FocusState private var nameFocused: Bool
 
@@ -56,7 +57,7 @@ struct ReviewView: View {
         }
         .interactiveDismissDisabled()
         .fullScreenCover(isPresented: $showScanner) {
-            DocumentScannerView { images in
+            DocumentScannerView(settings: settings, singlePage: replacingPage != nil) { images in
                 session.add(images, replacing: replacingPage)
                 replacingPage = nil
                 showScanner = false
@@ -83,6 +84,17 @@ struct ReviewView: View {
         .confirmationDialog("Scan verwerfen?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Verwerfen", role: .destructive) { dismiss() }
             Button("Weiter bearbeiten", role: .cancel) {}
+        }
+        .alert("An anderem Ort gespeichert", isPresented: hasSaveWarning) {
+            Button("OK", role: .cancel) {
+                if let outcome = saveWarning {
+                    saveWarning = nil
+                    onSaved(outcome.message)
+                    dismiss()
+                }
+            }
+        } message: {
+            Text(saveWarning?.warning ?? "")
         }
         .alert("Speichern nicht möglich", isPresented: hasError) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -163,7 +175,8 @@ struct ReviewView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(Array(session.pages.enumerated()), id: \.element.id) { index, page in
-                        PageCard(page: page, number: index + 1,
+                        PageCard(page: page, number: index + 1, count: session.pages.count,
+                                 onMove: { offset in withAnimation { session.move(page.id, by: offset) } },
                                  onRescan: { rescan(page.id) },
                                  onKeep: { session.keepAnyway(page.id) },
                                  onRemove: { session.remove(page.id) })
@@ -229,10 +242,18 @@ struct ReviewView: View {
         }
     }
 
+    private var asksForPlace: Bool { settings.destination == .ask }
+
     private var actionBar: some View {
         VStack(spacing: 10) {
             Button {
-                Task { await saveToDefault() }
+                Task {
+                    if asksForPlace {
+                        await prepareExport()
+                    } else {
+                        await saveToDefault()
+                    }
+                }
             } label: {
                 HStack(spacing: 8) {
                     if isWorking {
@@ -240,9 +261,9 @@ struct ReviewView: View {
                             .tint(.white)
                     }
                     VStack(spacing: 2) {
-                        Text("Speichern")
+                        Text(asksForPlace ? "Speichern …" : "Speichern")
                             .font(.headline)
-                        Text(destinationText)
+                        Text(settings.destinationPhrase)
                             .font(.caption)
                             .opacity(0.85)
                     }
@@ -254,12 +275,22 @@ struct ReviewView: View {
             .disabled(!session.canSave || isWorking)
 
             HStack(spacing: 10) {
-                Button {
-                    Task { await prepareExport() }
-                } label: {
-                    Label("Woanders sichern", systemImage: "folder")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+                if asksForPlace {
+                    Button {
+                        Task { await saveToDefault() }
+                    } label: {
+                        Label("Nur in PDFLito", systemImage: "iphone")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                    }
+                } else {
+                    Button {
+                        Task { await prepareExport() }
+                    } label: {
+                        Label("Woanders sichern", systemImage: "folder")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                    }
                 }
                 Button {
                     Task { await prepareShare() }
@@ -271,6 +302,13 @@ struct ReviewView: View {
             }
             .buttonStyle(.bordered)
             .disabled(!session.canSave || isWorking)
+
+            if !session.isAnalyzing && session.includedPages.isEmpty && !session.pages.isEmpty {
+                Text("Keine Seite ist gut lesbar. Scanne neu oder wähle bei einer Seite „Trotzdem verwenden“.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(.horizontal)
         .padding(.top, 10)
@@ -278,15 +316,12 @@ struct ReviewView: View {
         .background(.bar)
     }
 
-    private var destinationText: String {
-        if settings.destination == .folder, let name = settings.folderName {
-            return "in „\(name)“"
-        }
-        return "in PDFLito"
-    }
-
     private var nameBinding: Binding<String> {
         Binding(get: { session.fileName }, set: { session.setFileNameByUser($0) })
+    }
+
+    private var hasSaveWarning: Binding<Bool> {
+        Binding(get: { saveWarning != nil }, set: { _ in })
     }
 
     private var hasError: Binding<Bool> {
@@ -301,7 +336,7 @@ struct ReviewView: View {
             replacingPage = nil
             return
         }
-        guard VNDocumentCameraViewController.isSupported else { return }
+        guard DocumentScannerView.isAvailable else { return }
         showScanner = true
     }
 
@@ -315,9 +350,15 @@ struct ReviewView: View {
         isWorking = true
         defer { isWorking = false }
         do {
-            let message = try await session.saveToDefaultLocation(library: library)
-            onSaved(message)
-            dismiss()
+            let outcome = try await session.saveToDefaultLocation(library: library)
+            if outcome.warning != nil {
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                saveWarning = outcome
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                onSaved(outcome.message)
+                dismiss()
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -349,6 +390,7 @@ struct ReviewView: View {
         guard let message = pendingMessage else { return }
         pendingMessage = nil
         session.keepCopyIfNeeded(library: library)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         onSaved(message)
         dismiss()
     }
@@ -357,6 +399,8 @@ struct ReviewView: View {
 private struct PageCard: View {
     let page: ScanPage
     let number: Int
+    let count: Int
+    var onMove: (Int) -> Void
     var onRescan: () -> Void
     var onKeep: () -> Void
     var onRemove: () -> Void
@@ -404,6 +448,20 @@ private struct PageCard: View {
                             onKeep()
                         } label: {
                             Label("Trotzdem verwenden", systemImage: "checkmark")
+                        }
+                    }
+                    if number > 1 {
+                        Button {
+                            onMove(-1)
+                        } label: {
+                            Label("Nach vorn", systemImage: "arrow.left")
+                        }
+                    }
+                    if number < count {
+                        Button {
+                            onMove(1)
+                        } label: {
+                            Label("Nach hinten", systemImage: "arrow.right")
                         }
                     }
                     Button(role: .destructive) {

@@ -196,10 +196,12 @@ jobs:
           SUBMIT: ${{ inputs.submit_for_review }}
         run: |
           ruby -rjson -e 'puts JSON.generate({key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key: ENV["ASC_KEY_P8"], in_house: false})' > "$RUNNER_TEMP/api_key.json"
+          APP_VERSION=$(sed -n 's/.*MARKETING_VERSION: *"\(.*\)".*/\1/p' project.yml)
+          echo "App-Version: $APP_VERSION"
           fastlane deliver \
             --api_key_path "$RUNNER_TEMP/api_key.json" \
             --app_identifier "$BUNDLE_ID" \
-            --app_version "1.0" \
+            --app_version "$APP_VERSION" \
             --build_number "$BUILD_NUMBER" \
             --submit_for_review "$SUBMIT"
           rm -f "$RUNNER_TEMP/api_key.json"

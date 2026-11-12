@@ -51,11 +51,20 @@ final class ScanSession: ObservableObject, Identifiable {
         let strictness = settings.strictness
         let firstIndex = start
         Task {
+            // Analyse up to three pages at once, but show them in the order they were scanned.
             var insertAt = firstIndex
-            for image in images {
-                let page = await Task.detached(priority: .userInitiated) {
+            var running: [Task<ScanPage, Never>] = []
+            var remaining = images.makeIterator()
+            func launchNext() {
+                guard let image = remaining.next() else { return }
+                running.append(Task.detached(priority: .userInitiated) {
                     ScanSession.process(image, strictness: strictness)
-                }.value
+                })
+            }
+            for _ in 0..<3 { launchNext() }
+            while !running.isEmpty {
+                let page = await running.removeFirst().value
+                launchNext()
                 if let index = insertAt {
                     pages.insert(page, at: min(index, pages.count))
                     insertAt = index + 1
@@ -67,6 +76,16 @@ final class ScanSession: ObservableObject, Identifiable {
             }
             scheduleEstimate()
         }
+    }
+
+    /// Moves a page one place towards the front (-1) or the back (+1).
+    func move(_ pageID: ScanPage.ID, by offset: Int) {
+        guard let index = pages.firstIndex(where: { $0.id == pageID }) else { return }
+        let target = index + offset
+        guard pages.indices.contains(target) else { return }
+        pages.swapAt(index, target)
+        refreshName()
+        scheduleEstimate()
     }
 
     func remove(_ pageID: ScanPage.ID) {
@@ -178,28 +197,40 @@ final class ScanSession: ObservableObject, Identifiable {
 
     // MARK: - Saving
 
-    /// Saves to the location chosen in the settings and returns a short confirmation.
-    func saveToDefaultLocation(library: DocumentLibrary) async throws -> String {
+    struct SaveOutcome {
+        /// Short confirmation for the toast.
+        let message: String
+        /// Set when the scan could not go where it should and was rescued into PDFLito instead.
+        var warning: String?
+    }
+
+    /// Saves to the location chosen in the settings. A scan is never lost: when the chosen folder
+    /// cannot be reached, the PDF is kept in PDFLito and the outcome carries a warning.
+    func saveToDefaultLocation(library: DocumentLibrary) async throws -> SaveOutcome {
         guard let data = await pdfData() else { throw ScanError.nothingToSave }
         let name = finalName
-        switch settings.destination {
-        case .app:
+        guard settings.destination == .folder, let bookmark = settings.folderBookmark else {
             try library.save(data, named: name)
-            return "„\(name)“ gespeichert"
-        case .folder:
-            guard let bookmark = settings.folderBookmark else { throw ScanError.noFolder }
+            return SaveOutcome(message: "„\(name)“ gespeichert")
+        }
+        let folder = settings.folderName ?? "Ordner"
+        do {
             let result = try await Task.detached(priority: .userInitiated) {
                 try FolderSaver.save(data, baseName: name, bookmark: bookmark)
             }.value
             if let refreshed = result.refreshedBookmark {
                 settings.updateBookmark(refreshed)
             }
-            if settings.keepCopyInApp {
-                try library.save(data, named: name)
-            }
-            let folder = settings.folderName ?? "Ordner"
-            return "In „\(folder)“ gespeichert"
+        } catch {
+            try library.save(data, named: name)
+            return SaveOutcome(message: "„\(name)“ in PDFLito gespeichert",
+                               warning: "Der Ordner „\(folder)“ war nicht erreichbar (\(error.localizedDescription)). "
+                                   + "Der Scan liegt jetzt in PDFLito – von dort kannst du ihn teilen oder den Ordner in den Einstellungen neu wählen.")
         }
+        if settings.keepCopyInApp {
+            _ = try? library.save(data, named: name)
+        }
+        return SaveOutcome(message: "In „\(folder)“ gespeichert")
     }
 
     /// The PDF under its final name in a temporary folder, for "Woanders sichern" and "Teilen".
