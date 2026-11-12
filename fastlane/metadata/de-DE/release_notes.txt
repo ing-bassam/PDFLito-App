@@ -6,3 +6,4 @@ Schärfere Scans und Google Drive:
 • Ist ein Ordner nicht erreichbar, wird der Scan in PDFLito gesichert – nichts geht verloren.
 • Seiten umsortieren, „Neu scannen“ ersetzt genau eine Seite, Taschenlampe, Teilen per Wischgeste.
 • Mehrere Seiten werden gleichzeitig geprüft – das geht spürbar schneller.
+• Neues Design: übersichtlichere Dokumentliste mit Sortierung und Zeitabschnitten, Seiten vor dem Speichern groß ansehen und vergrößern, klarere Schaltflächen.
