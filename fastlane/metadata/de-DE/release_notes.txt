@@ -1,0 +1,9 @@
+Schärfere Scans und Google Drive:
+
+• Neue PDFLito-Kamera: Sie löst erst aus, wenn die Seite vollständig im Bild ist, das iPhone ruhig gehalten wird und scharf gestellt ist. Unscharfe Aufnahmen werden sofort verworfen und wiederholt.
+• Strengere Schärfeprüfung: Auch Seiten, die nur stellenweise verwischt sind, werden jetzt erkannt.
+• Google Drive: Neuer Speicherort „Ort beim Speichern wählen“ – der Sichern-Dialog merkt sich deinen Drive-Ordner.
+• Ist ein Ordner nicht erreichbar, wird der Scan in PDFLito gesichert – nichts geht verloren.
+• Seiten umsortieren, „Neu scannen“ ersetzt genau eine Seite, Taschenlampe, Teilen per Wischgeste.
+• Mehrere Seiten werden gleichzeitig geprüft – das geht spürbar schneller.
+• Neues Design: übersichtlichere Dokumentliste mit Sortierung und Zeitabschnitten, Seiten vor dem Speichern groß ansehen und vergrößern, klarere Schaltflächen.

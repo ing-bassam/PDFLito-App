@@ -41,10 +41,29 @@ enum CompressionLevel: String, CaseIterable, Identifiable {
 }
 
 enum SaveDestination: String, CaseIterable, Identifiable {
+    /// PDFLito's own storage on the iPhone.
     case app
+    /// A fixed folder picked once in the Files picker (iCloud Drive, OneDrive, Dropbox …).
     case folder
+    /// The system's "save to" dialog on every save. This is the way into Google Drive, which does
+    /// not let other apps remember one of its folders.
+    case ask
 
     var id: String { rawValue }
+}
+
+enum ScannerMode: String, CaseIterable, Identifiable {
+    case smart
+    case apple
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .smart: return "PDFLito-Kamera"
+        case .apple: return "Apple-Scanner"
+        }
+    }
 }
 
 enum Strictness: String, CaseIterable, Identifiable {
@@ -77,6 +96,8 @@ final class AppSettings: ObservableObject {
         static let strictness = "strictness"
         static let folderBookmark = "folderBookmark"
         static let folderName = "folderName"
+        static let scannerMode = "scannerMode"
+        static let autoCapture = "autoCapture"
     }
 
     private let defaults: UserDefaults
@@ -102,6 +123,12 @@ final class AppSettings: ObservableObject {
     @Published var strictness: Strictness {
         didSet { defaults.set(strictness.rawValue, forKey: Key.strictness) }
     }
+    @Published var scannerMode: ScannerMode {
+        didSet { defaults.set(scannerMode.rawValue, forKey: Key.scannerMode) }
+    }
+    @Published var autoCapture: Bool {
+        didSet { defaults.set(autoCapture, forKey: Key.autoCapture) }
+    }
     @Published private(set) var folderBookmark: Data?
     @Published private(set) var folderName: String?
 
@@ -114,6 +141,8 @@ final class AppSettings: ObservableObject {
         includeDate = defaults.bool(forKey: Key.includeDate)
         searchableText = defaults.object(forKey: Key.searchableText) as? Bool ?? true
         strictness = Strictness(rawValue: defaults.string(forKey: Key.strictness) ?? "") ?? .normal
+        scannerMode = ScannerMode(rawValue: defaults.string(forKey: Key.scannerMode) ?? "") ?? .smart
+        autoCapture = defaults.object(forKey: Key.autoCapture) as? Bool ?? true
         folderBookmark = defaults.data(forKey: Key.folderBookmark)
         folderName = defaults.string(forKey: Key.folderName)
         if destination == .folder && folderBookmark == nil {
@@ -149,7 +178,18 @@ final class AppSettings: ObservableObject {
         folderName = nil
         defaults.removeObject(forKey: Key.folderBookmark)
         defaults.removeObject(forKey: Key.folderName)
-        destination = .app
+        if destination == .folder {
+            destination = .app
+        }
+    }
+
+    /// Short text for buttons and captions, e.g. "in „Scans“".
+    var destinationPhrase: String {
+        switch destination {
+        case .app: return "in PDFLito"
+        case .folder: return folderName.map { "in „\($0)“" } ?? "in PDFLito"
+        case .ask: return "in Google Drive oder an einem anderen Ort"
+        }
     }
 
     /// Only used for App Store screenshots; never persisted.

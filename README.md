@@ -2,14 +2,16 @@
 
 Scannt Dokumente, lässt nur scharfe und lesbare Seiten durch, benennt die PDF nach der größten Überschrift
 (oder der Betreffzeile) und speichert sie stark komprimiert – in der App, in einem festen Ordner
-(z. B. Google Drive über die Dateien-App) oder an einem beliebigen Ort. Keine Anmeldung, keine Cookies,
+(iCloud Drive, OneDrive, Dropbox …), in Google Drive (Ort beim Speichern wählen, weil Drive keinen festen
+Ordner für andere Apps erlaubt) oder an einem beliebigen Ort. Keine Anmeldung, keine Cookies,
 kein Tracking, keine Netzwerkverbindung.
 
 ## Aufbau
 
 | Bereich | Datei |
 | --- | --- |
-| Schärfe- und Lesbarkeitsprüfung | `PDFLito/Services/QualityChecker.swift` |
+| Kamera, die erst bei ruhigem, scharf gestelltem Bild auslöst | `PDFLito/Views/ScannerViewController.swift`, `PDFLito/Services/CaptureGate.swift` |
+| Schärfe- und Lesbarkeitsprüfung (ganze Seite und Teilbereiche) | `PDFLito/Services/QualityChecker.swift` |
 | Texterkennung (auf dem Gerät) | `PDFLito/Services/TextRecognizer.swift` |
 | Dateiname aus Überschrift/Betreff, Datum | `PDFLito/Services/TitleExtractor.swift` |
 | Schatten entfernen, S/W-Kompression | `PDFLito/Services/ImageProcessor.swift` |

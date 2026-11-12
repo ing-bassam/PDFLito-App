@@ -4,14 +4,15 @@ AUTOMATISCH BENANNT
 PDFLito liest die größte Überschrift oder die Betreffzeile und macht daraus den Dateinamen, z. B. „Rechnung Nr. 2026-1047.pdf“ oder „Kündigung Mobilfunkvertrag.pdf“. Weitere Vorschläge aus dem Dokument sind nur einen Tipp entfernt. Auf Wunsch wird das Datum aus dem Dokument vorangestellt.
 
 NUR LESBARE SCANS
-Jede Seite wird auf Schärfe, Helligkeit und Lesbarkeit geprüft. Verwackelte oder unscharfe Seiten werden markiert und nicht gespeichert, bis du sie neu gescannt hast.
+Die Kamera löst erst aus, wenn die Seite vollständig im Bild ist, das iPhone ruhig gehalten wird und scharf gestellt ist. Jede Seite wird zusätzlich auf Schärfe, Helligkeit und Lesbarkeit geprüft – auch stellenweise verwischte Seiten werden erkannt und nicht gespeichert, bis du sie neu gescannt hast.
 
 KLEINE DATEIEN
 Schatten verschwinden, das Papier wird weiß und jede Seite wird stark komprimiert. Eine Textseite in Schwarzweiß bleibt meist deutlich unter 100 KB – ideal zum Mailen und Archivieren. Der Text bleibt trotzdem durchsuchbar.
 
 SPEICHERN, WO DU WILLST
 • In PDFLito – auch sichtbar in der Dateien-App
-• Direkt in einen festen Ordner, z. B. in Google Drive, iCloud Drive, OneDrive oder Dropbox (über die Dateien-App)
+• Direkt in einen festen Ordner, z. B. in iCloud Drive, OneDrive oder Dropbox (über die Dateien-App)
+• In Google Drive: Ort beim Speichern wählen – der Dialog merkt sich deinen Drive-Ordner
 • Oder jederzeit woanders sichern bzw. teilen
 
 PRIVAT

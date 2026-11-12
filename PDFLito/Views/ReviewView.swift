@@ -17,13 +17,16 @@ struct ReviewView: View {
     @State private var pendingMessage: String?
     @State private var isWorking = false
     @State private var errorMessage: String?
+    @State private var saveWarning: ScanSession.SaveOutcome?
     @State private var confirmDiscard = false
+    @State private var detailPage: PageReference?
+    @State private var rescanAfterDetail: ScanPage.ID?
     @FocusState private var nameFocused: Bool
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 16) {
                     nameSection
                     pagesSection
                     if session.rejectedCount > 0 {
@@ -56,7 +59,7 @@ struct ReviewView: View {
         }
         .interactiveDismissDisabled()
         .fullScreenCover(isPresented: $showScanner) {
-            DocumentScannerView { images in
+            DocumentScannerView(settings: settings, singlePage: replacingPage != nil) { images in
                 session.add(images, replacing: replacingPage)
                 replacingPage = nil
                 showScanner = false
@@ -80,9 +83,29 @@ struct ReviewView: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .sheet(item: $detailPage, onDismiss: rescanIfRequested) { reference in
+            if let index = session.pages.firstIndex(where: { $0.id == reference.id }) {
+                let page = session.pages[index]
+                PageDetailView(page: page, number: index + 1,
+                               onRescan: { rescanAfterDetail = page.id },
+                               onKeep: { session.keepAnyway(page.id) },
+                               onRemove: { session.remove(page.id) })
+            }
+        }
         .confirmationDialog("Scan verwerfen?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Verwerfen", role: .destructive) { dismiss() }
             Button("Weiter bearbeiten", role: .cancel) {}
+        }
+        .alert("An anderem Ort gespeichert", isPresented: hasSaveWarning) {
+            Button("OK", role: .cancel) {
+                if let outcome = saveWarning {
+                    saveWarning = nil
+                    onSaved(outcome.message)
+                    dismiss()
+                }
+            }
+        } message: {
+            Text(saveWarning?.warning ?? "")
         }
         .alert("Speichern nicht möglich", isPresented: hasError) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -118,7 +141,7 @@ struct ReviewView: View {
                 }
             }
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemGroupedBackground)))
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.tertiarySystemFill)))
 
             if session.suggestions.isEmpty {
                 if session.isAnalyzing {
@@ -144,6 +167,7 @@ struct ReviewView: View {
                 }
             }
         }
+        .card()
     }
 
     private var pagesSection: some View {
@@ -158,12 +182,21 @@ struct ReviewView: View {
                     Text("Prüfe Schärfe …")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                } else if !session.pages.isEmpty {
+                    if session.rejectedCount == 0 {
+                        StatusPill(text: "Alle gut lesbar", symbol: "checkmark.circle.fill", color: .green)
+                    } else {
+                        StatusPill(text: "\(session.rejectedCount) neu scannen",
+                                   symbol: "exclamationmark.triangle.fill", color: .orange)
+                    }
                 }
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(Array(session.pages.enumerated()), id: \.element.id) { index, page in
-                        PageCard(page: page, number: index + 1,
+                        PageCard(page: page, number: index + 1, count: session.pages.count,
+                                 onOpen: { nameFocused = false; detailPage = PageReference(id: page.id) },
+                                 onMove: { offset in withAnimation { session.move(page.id, by: offset) } },
                                  onRescan: { rescan(page.id) },
                                  onKeep: { session.keepAnyway(page.id) },
                                  onRemove: { session.remove(page.id) })
@@ -171,10 +204,18 @@ struct ReviewView: View {
                     ForEach(0..<session.pendingPages, id: \.self) { _ in
                         PlaceholderCard()
                     }
+                    AddPageCard {
+                        replacingPage = nil
+                        startScanner()
+                    }
                 }
                 .padding(.vertical, 2)
             }
+            Text("Tippe auf eine Seite, um sie groß anzusehen.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
+        .card()
     }
 
     private var rejectionBanner: some View {
@@ -193,7 +234,7 @@ struct ReviewView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.12)))
+        .background(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous).fill(Color.orange.opacity(0.14)))
     }
 
     private var formatSection: some View {
@@ -214,6 +255,7 @@ struct ReviewView: View {
             .font(.footnote)
             .foregroundStyle(.secondary)
         }
+        .card()
     }
 
     @ViewBuilder
@@ -229,10 +271,18 @@ struct ReviewView: View {
         }
     }
 
+    private var asksForPlace: Bool { settings.destination == .ask }
+
     private var actionBar: some View {
         VStack(spacing: 10) {
             Button {
-                Task { await saveToDefault() }
+                Task {
+                    if asksForPlace {
+                        await prepareExport()
+                    } else {
+                        await saveToDefault()
+                    }
+                }
             } label: {
                 HStack(spacing: 8) {
                     if isWorking {
@@ -240,26 +290,34 @@ struct ReviewView: View {
                             .tint(.white)
                     }
                     VStack(spacing: 2) {
-                        Text("Speichern")
+                        Text(asksForPlace ? "Speichern …" : "Speichern")
                             .font(.headline)
-                        Text(destinationText)
+                        Text(settings.destinationPhrase)
                             .font(.caption)
                             .opacity(0.85)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PrimaryButtonStyle())
             .disabled(!session.canSave || isWorking)
 
             HStack(spacing: 10) {
-                Button {
-                    Task { await prepareExport() }
-                } label: {
-                    Label("Woanders sichern", systemImage: "folder")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+                if asksForPlace {
+                    Button {
+                        Task { await saveToDefault() }
+                    } label: {
+                        Label("Nur in PDFLito", systemImage: "iphone")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                    }
+                } else {
+                    Button {
+                        Task { await prepareExport() }
+                    } label: {
+                        Label("Woanders sichern", systemImage: "folder")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                    }
                 }
                 Button {
                     Task { await prepareShare() }
@@ -270,7 +328,15 @@ struct ReviewView: View {
                 }
             }
             .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle(radius: 12))
             .disabled(!session.canSave || isWorking)
+
+            if !session.isAnalyzing && session.includedPages.isEmpty && !session.pages.isEmpty {
+                Text("Keine Seite ist gut lesbar. Scanne neu oder wähle bei einer Seite „Trotzdem verwenden“.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(.horizontal)
         .padding(.top, 10)
@@ -278,15 +344,12 @@ struct ReviewView: View {
         .background(.bar)
     }
 
-    private var destinationText: String {
-        if settings.destination == .folder, let name = settings.folderName {
-            return "in „\(name)“"
-        }
-        return "in PDFLito"
-    }
-
     private var nameBinding: Binding<String> {
         Binding(get: { session.fileName }, set: { session.setFileNameByUser($0) })
+    }
+
+    private var hasSaveWarning: Binding<Bool> {
+        Binding(get: { saveWarning != nil }, set: { _ in })
     }
 
     private var hasError: Binding<Bool> {
@@ -301,7 +364,7 @@ struct ReviewView: View {
             replacingPage = nil
             return
         }
-        guard VNDocumentCameraViewController.isSupported else { return }
+        guard DocumentScannerView.isAvailable else { return }
         showScanner = true
     }
 
@@ -310,14 +373,26 @@ struct ReviewView: View {
         startScanner()
     }
 
+    private func rescanIfRequested() {
+        guard let pageID = rescanAfterDetail else { return }
+        rescanAfterDetail = nil
+        rescan(pageID)
+    }
+
     private func saveToDefault() async {
         nameFocused = false
         isWorking = true
         defer { isWorking = false }
         do {
-            let message = try await session.saveToDefaultLocation(library: library)
-            onSaved(message)
-            dismiss()
+            let outcome = try await session.saveToDefaultLocation(library: library)
+            if outcome.warning != nil {
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                saveWarning = outcome
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                onSaved(outcome.message)
+                dismiss()
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -349,6 +424,7 @@ struct ReviewView: View {
         guard let message = pendingMessage else { return }
         pendingMessage = nil
         session.keepCopyIfNeeded(library: library)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         onSaved(message)
         dismiss()
     }
@@ -357,6 +433,9 @@ struct ReviewView: View {
 private struct PageCard: View {
     let page: ScanPage
     let number: Int
+    let count: Int
+    var onOpen: () -> Void
+    var onMove: (Int) -> Void
     var onRescan: () -> Void
     var onKeep: () -> Void
     var onRemove: () -> Void
@@ -371,23 +450,20 @@ private struct PageCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Image(uiImage: page.thumbnail)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 128, height: 172)
-                .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(page.isRejected ? Color.orange : Color.primary.opacity(0.12), lineWidth: page.isRejected ? 3 : 1))
-                .opacity(page.isRejected ? 0.55 : 1)
-                .overlay(alignment: .topTrailing) {
-                    if let verdict {
-                        Image(systemName: page.isRejected ? "exclamationmark.triangle.fill" : verdict.symbol)
-                            .font(.title3)
-                            .foregroundStyle(.white, statusColor)
-                            .padding(6)
-                    }
-                }
+            Button(action: onOpen) {
+                Image(uiImage: page.thumbnail)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 128, height: 172)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(page.isRejected ? Color.orange : Color.primary.opacity(0.12), lineWidth: page.isRejected ? 3 : 1))
+                    .opacity(page.isRejected ? 0.6 : 1)
+                    .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Seite \(number) groß ansehen")
 
             HStack(spacing: 4) {
                 Text("Seite \(number)")
@@ -406,6 +482,20 @@ private struct PageCard: View {
                             Label("Trotzdem verwenden", systemImage: "checkmark")
                         }
                     }
+                    if number > 1 {
+                        Button {
+                            onMove(-1)
+                        } label: {
+                            Label("Nach vorn", systemImage: "arrow.left")
+                        }
+                    }
+                    if number < count {
+                        Button {
+                            onMove(1)
+                        } label: {
+                            Label("Nach hinten", systemImage: "arrow.right")
+                        }
+                    }
                     Button(role: .destructive) {
                         onRemove()
                     } label: {
@@ -418,9 +508,9 @@ private struct PageCard: View {
                 .accessibilityLabel("Aktionen für Seite \(number)")
             }
             if let verdict {
-                Text(page.keepAnyway ? "Manuell behalten" : verdict.title)
-                    .font(.caption)
-                    .foregroundStyle(statusColor)
+                StatusPill(text: page.keepAnyway ? "Manuell behalten" : verdict.title,
+                           symbol: page.isRejected ? "exclamationmark.triangle.fill" : verdict.symbol,
+                           color: statusColor)
             }
             if page.isRejected {
                 Button("Neu scannen", action: onRescan)
@@ -437,8 +527,8 @@ private struct PageCard: View {
 private struct PlaceholderCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(.secondarySystemGroupedBackground))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(.tertiarySystemFill))
                 .frame(width: 128, height: 172)
                 .overlay(ProgressView())
             Text("Wird geprüft …")
@@ -446,5 +536,136 @@ private struct PlaceholderCard: View {
                 .foregroundStyle(.secondary)
         }
         .frame(width: 128)
+    }
+}
+
+private struct AddPageCard: View {
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.largeTitle)
+                Text("Seite hinzufügen")
+                    .font(.caption.weight(.semibold))
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(Color.accentColor)
+            .frame(width: 128, height: 172)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct PageReference: Identifiable {
+    let id: ScanPage.ID
+}
+
+/// One page in large, so the user can judge the sharpness before saving.
+private struct PageDetailView: View {
+    let page: ScanPage
+    let number: Int
+    var onRescan: () -> Void
+    var onKeep: () -> Void
+    var onRemove: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var image: UIImage?
+    @State private var zoomed = false
+
+    private var statusColor: Color {
+        guard let verdict = page.analysis?.verdict else { return .secondary }
+        if page.isRejected { return .orange }
+        return verdict == .good ? .green : (verdict.isAcceptable ? .teal : .orange)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                GeometryReader { geometry in
+                    ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                        Image(uiImage: image ?? page.thumbnail)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: geometry.size.width * (zoomed ? 2.5 : 1),
+                                   height: geometry.size.height * (zoomed ? 2.5 : 1))
+                    }
+                    .onTapGesture(count: 2) {
+                        withAnimation(.easeInOut(duration: 0.25)) { zoomed.toggle() }
+                    }
+                }
+                .background(Color(.systemGroupedBackground))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    if let verdict = page.analysis?.verdict {
+                        HStack(alignment: .top, spacing: 10) {
+                            StatusPill(text: page.keepAnyway ? "Manuell behalten" : verdict.title,
+                                       symbol: page.isRejected ? "exclamationmark.triangle.fill" : verdict.symbol,
+                                       color: statusColor)
+                            Text(verdict.detail)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    HStack(spacing: 10) {
+                        Button {
+                            onRescan()
+                            dismiss()
+                        } label: {
+                            Label("Neu scannen", systemImage: "camera.viewfinder")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 4)
+                        }
+                        if page.isRejected {
+                            Button {
+                                onKeep()
+                                dismiss()
+                            } label: {
+                                Label("Trotzdem verwenden", systemImage: "checkmark")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 4)
+                            }
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.roundedRectangle(radius: 12))
+                }
+                .padding()
+                .background(.bar)
+            }
+            .navigationTitle("Seite \(number)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .destructive) {
+                        onRemove()
+                        dismiss()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel("Seite entfernen")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.25)) { zoomed.toggle() }
+                    } label: {
+                        Image(systemName: zoomed ? "minus.magnifyingglass" : "plus.magnifyingglass")
+                    }
+                    .accessibilityLabel(zoomed ? "Verkleinern" : "Vergrößern")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fertig") { dismiss() }
+                }
+            }
+        }
+        .task {
+            let data = page.imageData
+            image = await Task.detached(priority: .userInitiated) { UIImage(data: data) }.value
+        }
     }
 }
