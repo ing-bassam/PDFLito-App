@@ -1,1 +1,23 @@
-PDFLito needs no account and makes no network connections. To test: tap "Scannen", scan any printed page. Each page is checked for sharpness on device; blurry pages are marked "Unscharf" and must be rescanned. The file name is suggested from the largest heading. Saving to a cloud folder (e.g. Google Drive or iCloud Drive) works via Settings > "Ordner wählen", which uses the standard Files picker.
+Thank you for the review. Here is the requested information (Guideline 2.1).
+
+1. SCREEN RECORDING
+A screen recording made on a physical iPhone is attached to this submission (App Review attachment). It starts with launching the app and shows the full flow: scanning a page with the automatic shutter, the quality check, the suggested file name, saving, opening the saved PDF and the document list. The app has no account, no login, no user-generated content and no paid content.
+
+2. PURPOSE AND AUDIENCE
+PDFLito is a document scanner for private users and small offices in German-speaking countries who want to file paper documents (invoices, letters, contracts) as small, searchable PDFs. It solves two common problems of scanner apps: blurry scans that are noticed too late, and files with meaningless names. PDFLito checks every page for sharpness on the device, asks the user to rescan unreadable pages, reads the document heading and suggests a file name such as "2026-10-31 Rechnung Stadtwerke".
+
+3. HOW TO USE THE MAIN FEATURES
+No login and no sample files are needed; any printed page works.
+- Tap "Scannen" and hold the iPhone over a printed page. The camera releases the shutter by itself once the page is fully visible, the phone is held still and the picture is in focus. A manual shutter button is also available. Tap "Fertig".
+- "Prüfen & speichern": every page shows a status ("Gut lesbar", "Unscharf" ...). Tap a page to view it enlarged. Blurry pages are excluded until rescanned ("Neu scannen") or kept on purpose ("Trotzdem verwenden"). The file name is pre-filled from the document heading and can be edited. Choose colour, greyscale or black-and-white.
+- Tap "Speichern". The PDF appears in the document list; tap it to open, swipe to share, rename or delete.
+- Settings (gear icon): storage location (inside the app, a location chosen in the system save dialog on each save, or a fixed folder chosen with the system Files picker), camera mode, file name format, compression, strictness of the sharpness check.
+
+4. EXTERNAL SERVICES
+None. PDFLito uses only Apple frameworks on the device (AVFoundation, Vision, VisionKit, Core Image, PDFKit). It makes no network connections, uses no analytics, advertising, authentication, payment or AI services and collects no data. Saving to iCloud Drive, Google Drive or similar happens only through the system Files picker and share sheet, if the user chooses such a location.
+
+5. REGIONAL DIFFERENCES
+None. The app works identically in all regions. The user interface is in German.
+
+6. REGULATED CONTENT
+Not applicable. The app does not operate in a regulated industry and contains no third-party material.
