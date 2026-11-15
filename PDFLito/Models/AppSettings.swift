@@ -135,7 +135,7 @@ final class AppSettings: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         colorMode = ColorMode(rawValue: defaults.string(forKey: Key.colorMode) ?? "") ?? .blackWhite
-        compression = CompressionLevel(rawValue: defaults.string(forKey: Key.compression) ?? "") ?? .maximum
+        compression = CompressionLevel(rawValue: defaults.string(forKey: Key.compression) ?? "") ?? .balanced
         destination = SaveDestination(rawValue: defaults.string(forKey: Key.destination) ?? "") ?? .app
         keepCopyInApp = defaults.object(forKey: Key.keepCopyInApp) as? Bool ?? true
         includeDate = defaults.bool(forKey: Key.includeDate)

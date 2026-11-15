@@ -54,10 +54,17 @@ enum ImageProcessor {
     static func encode(_ image: UIImage, mode: ColorMode, compression: CompressionLevel) -> EncodedPage? {
         guard let cgImage = image.cgImage else { return nil }
         let profile = profile(for: mode, compression: compression)
+        guard let source = rgb(cgImage, maxLongSide: profile.maxLongSide) else { return nil }
+        let paper = PaperMap(source)
         switch mode {
         case .blackWhite:
-            guard let gray = grayscale(cgImage, maxLongSide: profile.maxLongSide) else { return nil }
-            let bits = bilevelBits(whitened(gray))
+            // A book cover or photo has no paper to turn white and no ink to turn black –
+            // pure black and white would tear it into blotches. Such pages keep their shades of grey.
+            guard paper.isDocument else {
+                return grayPicture(cgImage, compression: compression)
+            }
+            let gray = luminance(whitened(source, paper: paper))
+            let bits = bilevelBits(gray)
             if let compressed = Zlib.compress(bits) {
                 return EncodedPage(data: compressed, pixelWidth: gray.width, pixelHeight: gray.height,
                                    colorSpace: "DeviceGray", bitsPerComponent: 1, filter: "FlateDecode")
@@ -65,18 +72,33 @@ enum ImageProcessor {
             return EncodedPage(data: bits, pixelWidth: gray.width, pixelHeight: gray.height,
                                colorSpace: "DeviceGray", bitsPerComponent: 1, filter: nil)
         case .grayscale:
-            guard let gray = grayscale(cgImage, maxLongSide: profile.maxLongSide),
-                  let flattened = makeCGImage(whitened(gray)),
-                  let jpeg = jpegData(flattened, quality: profile.jpegQuality) else { return nil }
-            return EncodedPage(data: jpeg, pixelWidth: gray.width, pixelHeight: gray.height,
+            let quality = paper.isDocument ? profile.jpegQuality : pictureQuality(profile.jpegQuality)
+            guard let flattened = makeCGImage(luminance(whitened(source, paper: paper))),
+                  let jpeg = jpegData(flattened, quality: quality) else { return nil }
+            return EncodedPage(data: jpeg, pixelWidth: source.width, pixelHeight: source.height,
                                colorSpace: "DeviceGray", bitsPerComponent: 8, filter: "DCTDecode")
         case .color:
-            guard let rgb = rgb(cgImage, maxLongSide: profile.maxLongSide),
-                  let flattened = makeCGImage(whitened(rgb)),
-                  let jpeg = jpegData(flattened, quality: profile.jpegQuality) else { return nil }
-            return EncodedPage(data: jpeg, pixelWidth: rgb.width, pixelHeight: rgb.height,
+            let quality = paper.isDocument ? profile.jpegQuality : pictureQuality(profile.jpegQuality)
+            guard let flattened = makeCGImage(whitened(source, paper: paper)),
+                  let jpeg = jpegData(flattened, quality: quality) else { return nil }
+            return EncodedPage(data: jpeg, pixelWidth: source.width, pixelHeight: source.height,
                                colorSpace: "DeviceRGB", bitsPerComponent: 8, filter: "DCTDecode")
         }
+    }
+
+    /// Pictures show JPEG artefacts sooner than text on white paper.
+    static func pictureQuality(_ quality: CGFloat) -> CGFloat {
+        min(0.85, quality + 0.2)
+    }
+
+    /// A picture page in a black-and-white document: greyscale at the grey resolution.
+    private static func grayPicture(_ image: CGImage, compression: CompressionLevel) -> EncodedPage? {
+        let profile = profile(for: .grayscale, compression: compression)
+        guard let gray = grayscale(image, maxLongSide: profile.maxLongSide),
+              let flattened = makeCGImage(gray),
+              let jpeg = jpegData(flattened, quality: pictureQuality(profile.jpegQuality)) else { return nil }
+        return EncodedPage(data: jpeg, pixelWidth: gray.width, pixelHeight: gray.height,
+                           colorSpace: "DeviceGray", bitsPerComponent: 8, filter: "DCTDecode")
     }
 
     // MARK: - Drawing
@@ -179,28 +201,47 @@ enum ImageProcessor {
         return GrayImage(width: image.width, height: image.height, pixels: output)
     }
 
-    static func whitened(_ image: RGBImage) -> RGBImage {
-        let background = BackgroundMap(luminance(image))
+    /// Cleans up the paper of a colour page. Only what really is paper – bright and without a
+    /// colour of its own – is turned white. Coloured areas, photos and whole picture pages
+    /// (a book cover, say) stay exactly as they were photographed; brightening them as if they
+    /// were paper leaves pale blotches.
+    static func whitened(_ image: RGBImage, paper: PaperMap) -> RGBImage {
+        guard paper.isDocument else { return image }
+        let background = paper.background
         let lookup = background.columnLookup(width: image.width)
         let width = image.width
         var output = [UInt8](repeating: 255, count: image.pixels.count)
         var row = [Float](repeating: 255, count: width)
+        var share = [Float](repeating: 1, count: width)
+        let light = paper.light
         image.pixels.withUnsafeBufferPointer { source in
             output.withUnsafeMutableBufferPointer { target in
                 for y in 0..<image.height {
-                    background.fill(row: y, lookup: lookup, into: &row)
+                    background.fill(row: y, lookup: lookup, from: paper.paperLevels, into: &row)
+                    background.fill(row: y, lookup: lookup, from: paper.paperness, into: &share)
                     for x in 0..<width {
                         let i = (y * width + x) * 4
-                        let paper = row[x]
-                        target[i] = levels(Float(source[i]) / paper)
-                        target[i + 1] = levels(Float(source[i + 1]) / paper)
-                        target[i + 2] = levels(Float(source[i + 2]) / paper)
+                        let level = row[x], isPaper = share[x]
+                        for channel in 0..<3 {
+                            // Dividing by the brightness and colour of the light takes out shadows
+                            // and makes tinted paper white again – everywhere on the page.
+                            let relative = Float(source[i + channel]) / (level * light[channel])
+                            // Paper additionally gets its last grey pushed to white and ink to
+                            // black; coloured areas keep their own shades.
+                            let cleaned = Float(levels(relative))
+                            let plain = min(255, relative * 255)
+                            target[i + channel] = UInt8(max(0, min(255, cleaned * isPaper + plain * (1 - isPaper))))
+                        }
                         target[i + 3] = 255
                     }
                 }
             }
         }
         return RGBImage(width: image.width, height: image.height, pixels: output)
+    }
+
+    static func whitened(_ image: RGBImage) -> RGBImage {
+        whitened(image, paper: PaperMap(image))
     }
 
     /// Maps brightness relative to the paper: ≥ 90 % becomes pure white, ≤ 10 % pure black.
@@ -358,6 +399,11 @@ struct BackgroundMap {
 
     /// Writes the interpolated paper brightness of every pixel in row `y` into `row`.
     func fill(row y: Int, lookup: ColumnLookup, into row: inout [Float]) {
+        fill(row: y, lookup: lookup, from: grid, into: &row)
+    }
+
+    /// The same interpolation for any other value stored per block.
+    func fill(row y: Int, lookup: ColumnLookup, from grid: [Float], into row: inout [Float]) {
         let position = (Float(y) + 0.5) / Float(block) - 0.5
         let top = max(0, min(rows - 1, Int(position.rounded(.down))))
         let bottom = min(rows - 1, top + 1)
@@ -371,7 +417,7 @@ struct BackgroundMap {
         }
     }
 
-    private static func neighbourhood(_ values: [Float], columns: Int, rows: Int, useMaximum: Bool) -> [Float] {
+    static func neighbourhood(_ values: [Float], columns: Int, rows: Int, useMaximum: Bool) -> [Float] {
         var output = values
         for y in 0..<rows {
             for x in 0..<columns {
@@ -394,5 +440,147 @@ struct BackgroundMap {
             }
         }
         return output
+    }
+}
+
+/// Tells paper from picture. Paper is bright and has no colour of its own; a red book cover,
+/// a photo or a coloured box is not paper and must not be "cleaned" like paper.
+struct PaperMap {
+    let background: BackgroundMap
+    /// Per block of the background grid: 1 = paper, 0 = coloured or dark area (smoothed at the borders).
+    let paperness: [Float]
+    /// Brightness of the paper at every block. Under coloured or dark areas it is carried
+    /// over from the paper around them, so they are lit like their surroundings.
+    let paperLevels: [Float]
+    /// Share of the page that is paper.
+    let paperShare: Double
+    /// Colour of the light on the paper per channel (red, green, blue), scaled so that a
+    /// brightness of 1 stays 1. White light is (1, 1, 1).
+    let light: [Float]
+
+    /// Below this share the page is treated as a picture and left untouched.
+    static let documentShare = 0.5
+
+    var isDocument: Bool { paperShare >= PaperMap.documentShare }
+
+    init(_ image: RGBImage) {
+        let background = BackgroundMap(ImageProcessor.luminance(image))
+        let block = background.block, columns = background.columns, rows = background.rows
+        let width = image.width, height = image.height
+        // Brightness of clean paper on this page: blocks darker than a good half of it are not paper.
+        let sorted = background.grid.sorted()
+        let paperLevel = sorted.isEmpty ? 255 : sorted[min(sorted.count - 1, Int(Float(sorted.count) * 0.9))]
+        // The brightest pixel of every block is its background.
+        var reds = [Float](repeating: 0, count: columns * rows)
+        var greens = [Float](repeating: 0, count: columns * rows)
+        var blues = [Float](repeating: 0, count: columns * rows)
+        var bright = [Bool](repeating: false, count: columns * rows)
+        image.pixels.withUnsafeBufferPointer { pixels in
+            for by in 0..<rows {
+                let y0 = by * block, y1 = min(height, y0 + block)
+                for bx in 0..<columns {
+                    let x0 = bx * block, x1 = min(width, x0 + block)
+                    var best = -1, red = 0, green = 0, blue = 0
+                    var y = y0
+                    while y < y1 {
+                        var x = x0
+                        while x < x1 {
+                            let i = (y * width + x) * 4
+                            let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                            let brightness = 77 * r + 150 * g + 29 * b
+                            if brightness > best {
+                                best = brightness
+                                red = r
+                                green = g
+                                blue = b
+                            }
+                            x += 2
+                        }
+                        y += 2
+                    }
+                    let index = by * columns + bx
+                    reds[index] = Float(red)
+                    greens[index] = Float(green)
+                    blues[index] = Float(blue)
+                    bright[index] = Float(best >> 8) >= paperLevel * 0.55
+                }
+            }
+        }
+
+        // Lamp light tints white paper, sometimes strongly. The typical colour of the bright
+        // areas shows that tint – unless it is so strong that it must be the colour of the
+        // page itself (a red cover), in which case nothing is excused.
+        func median(_ values: [Float]) -> Float {
+            let chosen = values.indices.filter { bright[$0] }.map { values[$0] }.sorted()
+            return chosen.isEmpty ? 255 : chosen[chosen.count / 2]
+        }
+        var tint: (red: Float, green: Float, blue: Float) = (median(reds), median(greens), median(blues))
+        let strongestTint = max(tint.red, tint.green, tint.blue, 1)
+        let weakestTint = min(tint.red, tint.green, tint.blue)
+        if (strongestTint - weakestTint) > strongestTint * 0.42 {
+            tint = (1, 1, 1)
+        } else {
+            tint = (max(tint.red, 1) / strongestTint, max(tint.green, 1) / strongestTint, max(tint.blue, 1) / strongestTint)
+        }
+
+        var flags = [Float](repeating: 0, count: columns * rows)
+        var paperBlocks = 0
+        for index in flags.indices where bright[index] {
+            let red = reds[index] / tint.red, green = greens[index] / tint.green, blue = blues[index] / tint.blue
+            let strongest = max(red, green, blue), weakest = min(red, green, blue)
+            if strongest - weakest <= strongest * 0.2 + 6 {
+                flags[index] = 1
+                paperBlocks += 1
+            }
+        }
+        self.paperLevels = PaperMap.levels(from: background.grid, isPaper: flags, columns: columns, rows: rows)
+        let lightBrightness = (77 * tint.red + 150 * tint.green + 29 * tint.blue) / 256
+        self.light = [tint.red / lightBrightness, tint.green / lightBrightness, tint.blue / lightBrightness]
+        self.background = background
+        self.paperShare = columns * rows > 0 ? Double(paperBlocks) / Double(columns * rows) : 1
+        // Coloured areas reach one block further than measured, so their rim is treated like
+        // their middle and they keep one even colour.
+        var shrunk = flags
+        for row in 0..<rows {
+            for column in 0..<columns where flags[row * columns + column] > 0 {
+                for dy in -1...1 {
+                    for dx in -1...1 {
+                        let c = column + dx, r = row + dy
+                        if c >= 0, r >= 0, c < columns, r < rows, flags[r * columns + c] == 0 {
+                            shrunk[row * columns + column] = 0
+                        }
+                    }
+                }
+            }
+        }
+        self.paperness = BackgroundMap.neighbourhood(shrunk, columns: columns, rows: rows, useMaximum: false)
+    }
+
+    /// Paper brightness per block, with the blocks that are not paper filled in from their neighbours.
+    private static func levels(from grid: [Float], isPaper: [Float], columns: Int, rows: Int) -> [Float] {
+        var values = grid
+        var known = isPaper.map { $0 > 0 }
+        guard known.contains(true) else { return grid }
+        while known.contains(false) {
+            var nextValues = values, nextKnown = known
+            for row in 0..<rows {
+                for column in 0..<columns where !known[row * columns + column] {
+                    var sum: Float = 0, count: Float = 0
+                    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                        let c = column + dx, r = row + dy
+                        guard c >= 0, r >= 0, c < columns, r < rows, known[r * columns + c] else { continue }
+                        sum += values[r * columns + c]
+                        count += 1
+                    }
+                    if count > 0 {
+                        nextValues[row * columns + column] = sum / count
+                        nextKnown[row * columns + column] = true
+                    }
+                }
+            }
+            values = nextValues
+            known = nextKnown
+        }
+        return BackgroundMap.neighbourhood(values, columns: columns, rows: rows, useMaximum: false)
     }
 }

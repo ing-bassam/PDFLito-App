@@ -51,6 +51,66 @@ final class PDFWriterTests: XCTestCase {
         }
     }
 
+    private func picture(_ size: CGSize, _ draw: @escaping (CGContext) -> Void) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { draw($0.cgContext) }
+    }
+
+    /// A red book cover is not paper. Cleaning it like paper left pale blotches all over it.
+    func testColouredCoverIsLeftUntouched() throws {
+        let cover = picture(CGSize(width: 1000, height: 1414)) { context in
+            let colors = [UIColor(red: 0.95, green: 0.45, blue: 0.55, alpha: 1).cgColor,
+                          UIColor(red: 0.9, green: 0.15, blue: 0.28, alpha: 1).cgColor] as CFArray
+            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!
+            context.drawRadialGradient(gradient, startCenter: CGPoint(x: 250, y: 250), startRadius: 0,
+                                       endCenter: CGPoint(x: 500, y: 700), endRadius: 1100,
+                                       options: [.drawsAfterEndLocation])
+            ("Erziehung" as NSString).draw(at: CGPoint(x: 150, y: 400), withAttributes: [
+                .font: UIFont.boldSystemFont(ofSize: 130), .foregroundColor: UIColor.white,
+            ])
+        }
+        let source = try XCTUnwrap(ImageProcessor.rgb(try XCTUnwrap(cover.cgImage), maxLongSide: 1414))
+        let paper = PaperMap(source)
+        XCTAssertFalse(paper.isDocument, "paper share \(paper.paperShare)")
+        XCTAssertEqual(ImageProcessor.whitened(source, paper: paper).pixels, source.pixels)
+
+        // Black and white would tear the cover apart; such a page keeps its shades of grey.
+        let encoded = try XCTUnwrap(ImageProcessor.encode(cover, mode: .blackWhite, compression: .maximum))
+        XCTAssertEqual(encoded.bitsPerComponent, 8)
+    }
+
+    /// White paper under yellow lamp light with a coloured box: the paper turns white,
+    /// the box keeps one even colour.
+    func testTintedPaperTurnsWhiteAndColouredBoxStaysEven() throws {
+        let letter = picture(CGSize(width: 1000, height: 1414)) { context in
+            UIColor(red: 0.86, green: 0.76, blue: 0.6, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1000, height: 1414))
+            UIColor(red: 0.1, green: 0.25, blue: 0.6, alpha: 1).setFill()
+            context.fill(CGRect(x: 600, y: 100, width: 300, height: 200))
+            UIColor(white: 0.1, alpha: 1).setFill()
+            for row in 0..<30 {
+                context.fill(CGRect(x: 100, y: 400 + row * 30, width: 780, height: 6))
+            }
+        }
+        let source = try XCTUnwrap(ImageProcessor.rgb(try XCTUnwrap(letter.cgImage), maxLongSide: 1414))
+        let paper = PaperMap(source)
+        XCTAssertTrue(paper.isDocument, "paper share \(paper.paperShare)")
+        let cleaned = ImageProcessor.whitened(source, paper: paper)
+        func pixel(_ x: Int, _ y: Int) -> [Int] {
+            let index = (y * cleaned.width + x) * 4
+            return [Int(cleaned.pixels[index]), Int(cleaned.pixels[index + 1]), Int(cleaned.pixels[index + 2])]
+        }
+        XCTAssertGreaterThan(pixel(300, 200).min() ?? 0, 245, "tinted paper should turn white")
+        XCTAssertLessThan(pixel(300, 403).max() ?? 255, 80, "ink should stay dark")
+        let centre = pixel(750, 200), edge = pixel(612, 112)
+        XCTAssertGreaterThan(centre[2] - centre[0], 60, "the box should stay blue: \(centre)")
+        for channel in 0..<3 {
+            XCTAssertEqual(centre[channel], edge[channel], accuracy: 12, "the box should have one even colour")
+        }
+    }
+
     func testBlackWhiteMaximumIsTiny() throws {
         let encoded = try XCTUnwrap(ImageProcessor.encode(page, mode: .blackWhite, compression: .maximum))
         let data = PDFWriter.makePDF(pages: [PDFPage(image: encoded, lines: [])], title: "")

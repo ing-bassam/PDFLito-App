@@ -4,3 +4,5 @@ Besser lesbare, gerade Scans:
 • Gerade Seiten: Schiefe oder gewölbte Blätter werden anhand der Textzeilen ausgerichtet und auf A4-Format gebracht.
 • Text markieren und kopieren: Die Textebene liegt jetzt genau auf dem Druckbild, Wörter bleiben getrennt.
 • Die Kamera wartet länger auf ein ruhiges, scharfes Bild und löst nur aus, wenn die ganze Seite groß genug im Bild ist.
+• Keine hellen Flecken mehr: Farbige Seiten, Buchumschläge und Fotos bleiben, wie sie sind. Nur echtes Papier wird aufgehellt, auch unter gelblichem Lampenlicht.
+• Standardmäßig etwas höhere Qualität; die kleinste Dateigröße bleibt in den Einstellungen wählbar.
