@@ -32,18 +32,20 @@ enum ImageProcessor {
         let jpegQuality: CGFloat
     }
 
-    /// Output resolution and JPEG quality. An A4 page with 1800 px on the long side is about 150 dpi.
+    /// Output resolution and JPEG quality. An A4 page with 2340 px on the long side is 200 dpi.
+    /// Black-and-white pages have no shades of grey to smooth small print, so they need the
+    /// most pixels: below about 200 dpi small type breaks up and becomes hard to read.
     static func profile(for mode: ColorMode, compression: CompressionLevel) -> OutputProfile {
         switch (mode, compression) {
-        case (.blackWhite, .maximum): return OutputProfile(maxLongSide: 1800, jpegQuality: 0)
-        case (.blackWhite, .balanced): return OutputProfile(maxLongSide: 2200, jpegQuality: 0)
-        case (.blackWhite, .high): return OutputProfile(maxLongSide: 2800, jpegQuality: 0)
-        case (.grayscale, .maximum): return OutputProfile(maxLongSide: 1500, jpegQuality: 0.35)
-        case (.grayscale, .balanced): return OutputProfile(maxLongSide: 1800, jpegQuality: 0.5)
-        case (.grayscale, .high): return OutputProfile(maxLongSide: 2400, jpegQuality: 0.7)
-        case (.color, .maximum): return OutputProfile(maxLongSide: 1400, jpegQuality: 0.35)
-        case (.color, .balanced): return OutputProfile(maxLongSide: 1700, jpegQuality: 0.5)
-        case (.color, .high): return OutputProfile(maxLongSide: 2300, jpegQuality: 0.7)
+        case (.blackWhite, .maximum): return OutputProfile(maxLongSide: 2500, jpegQuality: 0)
+        case (.blackWhite, .balanced): return OutputProfile(maxLongSide: 2900, jpegQuality: 0)
+        case (.blackWhite, .high): return OutputProfile(maxLongSide: 3400, jpegQuality: 0)
+        case (.grayscale, .maximum): return OutputProfile(maxLongSide: 1750, jpegQuality: 0.4)
+        case (.grayscale, .balanced): return OutputProfile(maxLongSide: 2100, jpegQuality: 0.5)
+        case (.grayscale, .high): return OutputProfile(maxLongSide: 2700, jpegQuality: 0.7)
+        case (.color, .maximum): return OutputProfile(maxLongSide: 1650, jpegQuality: 0.4)
+        case (.color, .balanced): return OutputProfile(maxLongSide: 2000, jpegQuality: 0.5)
+        case (.color, .high): return OutputProfile(maxLongSide: 2600, jpegQuality: 0.7)
         }
     }
 

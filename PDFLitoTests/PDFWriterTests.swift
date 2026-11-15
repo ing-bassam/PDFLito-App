@@ -28,6 +28,29 @@ final class PDFWriterTests: XCTestCase {
         }
     }
 
+    /// Tilted lines used to lose their spaces ("wirbittenSie…"), so words could not be searched or copied.
+    func testTextLayerKeepsSpacesOnTiltedLines() throws {
+        let encoded = try XCTUnwrap(ImageProcessor.encode(page, mode: .blackWhite, compression: .maximum))
+        let texts = ["wir bitten Sie namens und in Vollmacht des Eigentümers um Zustimmung",
+                     "Ihre Wohnung ist öffentlich gefördert und unterliegt dadurch der Bindung",
+                     "Gemäß Fördervertrag kann Ihre Miete alle zwei Jahre erhöht werden"]
+        var lines: [RecognizedLine] = []
+        for (index, text) in texts.enumerated() {
+            // 4° tilt: the upright box around the line is much taller than the print.
+            let left = TextPoint(x: 0.1, y: 0.6 - Double(index) * 0.05), rise = 0.8 * 0.07
+            let right = TextPoint(x: 0.9, y: left.y + rise)
+            lines.append(RecognizedLine(text: text,
+                                        box: CGRect(x: left.x, y: left.y, width: 0.8, height: rise + 0.014),
+                                        confidence: 1, words: [], bottomLeft: left, bottomRight: right,
+                                        topLeft: TextPoint(x: left.x, y: left.y + 0.014)))
+        }
+        let data = PDFWriter.makePDF(pages: [PDFPage(image: encoded, lines: lines)], title: "")
+        let text = try XCTUnwrap(PDFDocument(data: data)?.page(at: 0)?.string)
+        for expected in texts {
+            XCTAssertTrue(text.contains(expected), "Spaces or words lost: \(text)")
+        }
+    }
+
     func testBlackWhiteMaximumIsTiny() throws {
         let encoded = try XCTUnwrap(ImageProcessor.encode(page, mode: .blackWhite, compression: .maximum))
         let data = PDFWriter.makePDF(pages: [PDFPage(image: encoded, lines: [])], title: "")

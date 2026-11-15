@@ -85,21 +85,124 @@ enum PDFWriter {
         var content = "q\n\(number(width)) 0 0 \(number(height)) 0 0 cm\n/Im0 Do\nQ\n"
         var text = ""
         for line in page.lines {
-            let bytes = winAnsi(line.text)
-            let boxHeight = Double(line.box.height) * height
-            guard !bytes.isEmpty, boxHeight >= 1 else { continue }
-            let fontSize = boxHeight * 0.85
-            let naturalWidth = Double(textWidth(bytes)) * fontSize / 1000
-            let targetWidth = Double(line.box.width) * width
-            let scale = naturalWidth > 0 ? min(500, max(10, targetWidth / naturalWidth * 100)) : 100
-            let x = Double(line.box.minX) * width
-            let y = Double(line.box.minY) * height + boxHeight * 0.2
-            text += "/F1 \(number(fontSize)) Tf\n\(number(scale)) Tz\n1 0 0 1 \(number(x)) \(number(y)) Tm\n<\(hex(bytes))> Tj\n"
+            text += textOperators(for: line, pageWidth: width, pageHeight: height)
         }
         if !text.isEmpty {
             content += "BT\n3 Tr\n" + text + "ET\n"
         }
         return content
+    }
+
+    /// One line of the invisible text layer: a single string with real spaces, in a font size at
+    /// which the Helvetica words are as wide as the printed ones. All gaps of a line are widened
+    /// by the same amount until the line is as long as the print. Readers such as Files, Preview
+    /// and Google Drive decide by the geometry where one word ends – squeezed text or gaps of very
+    /// different width make them glue words together, natural proportions keep every space.
+    static func textOperators(for line: RecognizedLine, pageWidth: Double, pageHeight: Double) -> String {
+        let words = placedWords(of: line, pageWidth: pageWidth, pageHeight: pageHeight)
+        let glyphs = words.map { winAnsi($0.text) }
+        guard let first = words.first, !glyphs.contains(where: \.isEmpty) else { return "" }
+        let gaps = Double(words.count - 1)
+        let space = Double(textWidth([0x20]))
+        let wordUnits = glyphs.reduce(0.0) { $0 + Double(textWidth($1)) }
+        let printedWidth = words.reduce(0) { $0 + $1.width }
+        let last = words[words.count - 1]
+        let c = cos(first.angle), s = sin(first.angle)
+        let lineLength = (last.x - first.x) * c + (last.y - first.y) * s + last.width
+        guard wordUnits > 0, printedWidth > 0, lineLength > 0, first.height >= 1 else { return "" }
+        // Never larger than the size at which the line with ordinary spaces fills its length.
+        let fontSize = min(printedWidth / wordUnits, lineLength / (wordUnits + space * gaps)) * 1000
+        guard fontSize >= 1 else { return "" }
+        let naturalLength = (wordUnits + space * gaps) * fontSize / 1000
+        let wordSpacing = gaps > 0 ? min(fontSize * 2, max(0, (lineLength - naturalLength) / gaps)) : 0
+
+        // Lift the baseline a little: the box includes the descenders (g, p, y).
+        let x = first.x - s * first.height * 0.22
+        let y = first.y + c * first.height * 0.22
+        var bytes: [UInt8] = []
+        for (index, word) in glyphs.enumerated() {
+            if index > 0 { bytes.append(0x20) }
+            bytes.append(contentsOf: word)
+        }
+        return "/F1 \(number(fontSize)) Tf\n\(number(wordSpacing)) Tw\n"
+            + "\(precise(c)) \(precise(s)) \(precise(-s)) \(precise(c)) \(number(x)) \(number(y)) Tm\n"
+            + "<\(hex(bytes))> Tj\n"
+    }
+
+    /// A word of the invisible text layer in page points.
+    struct PlacedWord {
+        let text: String
+        /// Lower left corner of the word box.
+        let x: Double
+        let y: Double
+        let width: Double
+        let height: Double
+        /// Direction of the baseline, counter-clockwise in radians.
+        let angle: Double
+    }
+
+    /// Places every word of a line where it is printed. Uses the word positions of the text
+    /// recognition when they are known and plausible, otherwise spreads the words along the line.
+    static func placedWords(of line: RecognizedLine, pageWidth: Double, pageHeight: Double) -> [PlacedWord] {
+        func point(_ p: TextPoint) -> (x: Double, y: Double) { (p.x * pageWidth, p.y * pageHeight) }
+        func distance(_ a: (x: Double, y: Double), _ b: (x: Double, y: Double)) -> Double {
+            ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)).squareRoot()
+        }
+
+        // The line as a whole: start, direction, length and height.
+        let start: (x: Double, y: Double), end: (x: Double, y: Double), lineHeight: Double
+        if let bottomLeft = line.bottomLeft, let bottomRight = line.bottomRight, let topLeft = line.topLeft {
+            start = point(bottomLeft)
+            end = point(bottomRight)
+            lineHeight = distance(point(topLeft), start)
+        } else {
+            start = (Double(line.box.minX) * pageWidth, Double(line.box.minY) * pageHeight)
+            end = (Double(line.box.maxX) * pageWidth, Double(line.box.minY) * pageHeight)
+            lineHeight = Double(line.box.height) * pageHeight
+        }
+        let lineLength = distance(start, end)
+        guard lineLength > 0, lineHeight > 0 else { return [] }
+        let angle = atan2(end.y - start.y, end.x - start.x)
+
+        // Word boxes are trusted when they differ from each other and lie on the line.
+        if line.words.count > 1 {
+            let placed = line.words.map { word -> PlacedWord in
+                let origin = point(word.bottomLeft), right = point(word.bottomRight)
+                return PlacedWord(text: word.text, x: origin.x, y: origin.y, width: distance(origin, right),
+                                  height: lineHeight, angle: angle)
+            }
+            let widest = placed.map(\.width).max() ?? 0
+            let directionX = cos(angle), directionY = sin(angle)
+            var inOrder = true
+            for index in 1..<placed.count {
+                let stepX: Double = placed[index].x - placed[index - 1].x
+                let stepY: Double = placed[index].y - placed[index - 1].y
+                if stepX * directionX + stepY * directionY <= 0 {
+                    inOrder = false
+                }
+            }
+            if widest < lineLength * 0.9, inOrder {
+                return placed
+            }
+        }
+
+        // Fallback: share the line among the words in proportion to their printed width.
+        let parts = line.text.split(whereSeparator: { $0 == " " }).map(String.init)
+        guard !parts.isEmpty else { return [] }
+        let space = Double(textWidth([0x20]))
+        let widths = parts.map { Double(textWidth(winAnsi($0))) }
+        let total = widths.reduce(0, +) + space * Double(parts.count - 1)
+        guard total > 0 else { return [] }
+        let unit = lineLength / total
+        var offset = 0.0
+        var placed: [PlacedWord] = []
+        for (part, partWidth) in zip(parts, widths) {
+            placed.append(PlacedWord(text: part, x: start.x + cos(angle) * offset * unit,
+                                     y: start.y + sin(angle) * offset * unit,
+                                     width: partWidth * unit, height: lineHeight, angle: angle))
+            offset += partWidth + space
+        }
+        return placed
     }
 
     // MARK: - Encoding helpers
@@ -110,6 +213,15 @@ enum PDFWriter {
             return String(Int(rounded))
         }
         return String(format: "%.2f", rounded)
+    }
+
+    /// Four decimals, for the rotation part of a text matrix.
+    static func precise(_ value: Double) -> String {
+        let rounded = (value * 10000).rounded() / 10000
+        if rounded == rounded.rounded() {
+            return String(Int(rounded))
+        }
+        return String(format: "%.4f", rounded)
     }
 
     static func winAnsi(_ text: String) -> [UInt8] {

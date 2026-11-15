@@ -1,11 +1,31 @@
 import UIKit
 
+/// A point on the page, normalized to 0…1 with the origin bottom-left like Vision and PDF.
+struct TextPoint: Hashable {
+    var x: Double
+    var y: Double
+}
+
+/// One word of a recognized line with three corners of its (possibly tilted) box.
+struct RecognizedWord: Hashable {
+    var text: String
+    var bottomLeft: TextPoint
+    var bottomRight: TextPoint
+    var topLeft: TextPoint
+}
+
 /// One line of text found by the on-device text recognition.
 struct RecognizedLine: Hashable {
     var text: String
     /// Normalized bounding box (0…1), origin bottom-left like Vision and PDF.
     var box: CGRect
     var confidence: Float
+    /// The words of the line with their own positions; empty when they are not known.
+    var words: [RecognizedWord] = []
+    /// Corners of the line as it really lies on the page (a tilted line has a tilted box).
+    var bottomLeft: TextPoint?
+    var bottomRight: TextPoint?
+    var topLeft: TextPoint?
 }
 
 enum QualityVerdict: Equatable {
