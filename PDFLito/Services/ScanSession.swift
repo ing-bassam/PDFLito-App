@@ -102,13 +102,28 @@ final class ScanSession: ObservableObject, Identifiable {
     }
 
     /// Runs off the main thread: straightens the image, checks sharpness and reads the text.
+    /// Long side of the stored page in pixels – about 290 dpi for an A4 sheet.
+    nonisolated static let storedLongSide: CGFloat = 3400
+
     nonisolated static func process(_ image: UIImage, strictness: Strictness) -> ScanPage {
-        let upright = ImageProcessor.normalizedImage(image, maxLongSide: 2600)
+        var upright = ImageProcessor.normalizedImage(image, maxLongSide: storedLongSide)
+        var lines: [RecognizedLine]?
+        if let source = upright.cgImage {
+            let found = TextRecognizer.recognize(source)
+            lines = found
+            // Level the text lines and give the sheet its real proportions.
+            if let straight = PageStraightener.straighten(source, lines: found) {
+                upright = UIImage(cgImage: straight.image)
+                lines = straight.warped ? nil : found
+            }
+        }
         let data = upright.jpegData(compressionQuality: 0.85) ?? Data()
         let thumbnail = ImageProcessor.normalizedImage(upright, maxLongSide: 360)
         let fallback = PageAnalysis(lines: [], sharpness: nil, brightness: 1, characterCount: 0,
                                     meanConfidence: 0, verdict: .littleText)
-        let analysis = upright.cgImage.map { QualityChecker.analyze($0, strictness: strictness) } ?? fallback
+        let analysis = upright.cgImage.map {
+            QualityChecker.analyze($0, strictness: strictness, recognized: lines)
+        } ?? fallback
         return ScanPage(imageData: data, thumbnail: thumbnail, analysis: analysis)
     }
 

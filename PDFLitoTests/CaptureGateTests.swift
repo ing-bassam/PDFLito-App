@@ -22,7 +22,8 @@ final class CaptureGateTests: XCTestCase {
         XCTAssertEqual(gate.update(quad: nil, isSteady: true, isFocusing: false, now: 0), .searching)
         XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 0.1), .holding(progress: 0))
         XCTAssertNotEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 0.5), .ready)
-        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 0.95), .ready)
+        XCTAssertNotEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1.0), .ready, "0.9 s of calm is not enough")
+        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1.4), .ready)
     }
 
     func testMovementRestartsTheWait() {
@@ -34,7 +35,7 @@ final class CaptureGateTests: XCTestCase {
         XCTAssertEqual(gate.update(quad: shifted(page, by: 0.05), isSteady: true, isFocusing: false, now: 1.0), .moving,
                        "a page sliding through the picture is movement too")
         _ = gate.update(quad: shifted(page, by: 0.05), isSteady: true, isFocusing: false, now: 1.1)
-        XCTAssertEqual(gate.update(quad: shifted(page, by: 0.05), isSteady: true, isFocusing: false, now: 2.0), .ready)
+        XCTAssertEqual(gate.update(quad: shifted(page, by: 0.05), isSteady: true, isFocusing: false, now: 2.4), .ready)
     }
 
     func testWaitsWhileTheLensIsFocusing() {
@@ -43,7 +44,15 @@ final class CaptureGateTests: XCTestCase {
         XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: true, now: 0.7), .focusing)
         XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: true, now: 3), .focusing)
         XCTAssertNotEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 3.1), .ready)
-        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 4), .ready)
+        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 4.4), .ready)
+    }
+
+    func testPageTouchingTheFrameEdgeIsNotCaptured() {
+        var gate = CaptureGate()
+        let cut = Quad(topLeft: CGPoint(x: 0.0, y: 0.95), topRight: CGPoint(x: 0.9, y: 0.95),
+                       bottomRight: CGPoint(x: 0.9, y: 0.05), bottomLeft: CGPoint(x: 0.0, y: 0.05))
+        XCTAssertEqual(gate.update(quad: cut, isSteady: true, isFocusing: false, now: 0), .cutOff)
+        XCTAssertEqual(gate.update(quad: cut, isSteady: true, isFocusing: false, now: 5), .cutOff, "a page that leaves the frame is never captured")
     }
 
     func testSmallPageAsksToComeCloser() {
@@ -57,22 +66,22 @@ final class CaptureGateTests: XCTestCase {
     func testSamePageIsNotCapturedTwice() {
         var gate = CaptureGate()
         _ = gate.update(quad: page, isSteady: true, isFocusing: false, now: 0)
-        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1), .ready)
-        gate.didCapture(quad: page, accepted: true, now: 1)
+        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1.3), .ready)
+        gate.didCapture(quad: page, accepted: true, now: 1.3)
         XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 5), .waitingForNextPage)
         // The page is taken away and the next one is laid down.
         XCTAssertEqual(gate.update(quad: nil, isSteady: true, isFocusing: false, now: 6), .searching)
         _ = gate.update(quad: page, isSteady: true, isFocusing: false, now: 6.5)
-        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 7.5), .ready)
+        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 7.8), .ready)
     }
 
     func testBlurryShotIsRetriedAfterAnotherCalmMoment() {
         var gate = CaptureGate()
         _ = gate.update(quad: page, isSteady: true, isFocusing: false, now: 0)
-        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1), .ready)
-        gate.didCapture(quad: page, accepted: false, now: 1)
-        XCTAssertNotEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1.1), .ready)
-        XCTAssertNotEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1.5), .waitingForNextPage)
-        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 2.4), .ready)
+        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1.3), .ready)
+        gate.didCapture(quad: page, accepted: false, now: 1.3)
+        XCTAssertNotEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1.4), .ready)
+        XCTAssertNotEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 1.8), .waitingForNextPage)
+        XCTAssertEqual(gate.update(quad: page, isSteady: true, isFocusing: false, now: 2.9), .ready)
     }
 }

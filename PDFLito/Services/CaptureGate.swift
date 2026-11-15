@@ -37,14 +37,17 @@ struct Quad: Equatable {
 /// this is what keeps early, blurry captures from happening.
 struct CaptureGate {
     struct Config {
-        /// The page must cover at least this share of the frame.
-        var minimumArea = 0.12
+        /// The page must cover at least this share of the frame – a page that is far away
+        /// has too few pixels for small print.
+        var minimumArea = 0.2
+        /// Every corner must keep this distance from the edge of the frame, so nothing is cut off.
+        var edgeMargin = 0.008
         /// Corner movement (share of the frame) that still counts as "not moving".
-        var maximumDrift = 0.025
+        var maximumDrift = 0.02
         /// Everything must stay calm for this long before the shutter is released.
-        var holdDuration: TimeInterval = 0.8
+        var holdDuration: TimeInterval = 1.2
         /// Pause between two automatic photos.
-        var minimumInterval: TimeInterval = 1.2
+        var minimumInterval: TimeInterval = 1.5
         /// After a photo the page must move at least this far (or vanish) before the next one is taken.
         var pageChangeDistance = 0.07
     }
@@ -52,6 +55,7 @@ struct CaptureGate {
     enum State: Equatable {
         case searching
         case tooSmall
+        case cutOff
         case moving
         case focusing
         case holding(progress: Double)
@@ -84,6 +88,14 @@ struct CaptureGate {
         guard quad.area >= config.minimumArea else {
             restart()
             return .tooSmall
+        }
+        let margin = config.edgeMargin
+        let insideFrame = quad.corners.allSatisfy {
+            Double($0.x) >= margin && Double($0.x) <= 1 - margin && Double($0.y) >= margin && Double($0.y) <= 1 - margin
+        }
+        guard insideFrame else {
+            restart()
+            return .cutOff
         }
         guard isSteady else {
             restart()

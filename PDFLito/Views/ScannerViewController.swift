@@ -157,7 +157,10 @@ final class ScannerViewController: UIViewController {
             session.beginConfiguration()
             session.sessionPreset = .photo
             if session.canAddInput(input) { session.addInput(input) }
-            if session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
+            if session.canAddOutput(photoOutput) {
+                session.addOutput(photoOutput)
+                photoOutput.maxPhotoQualityPrioritization = .quality
+            }
             if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
             session.commitConfiguration()
             if (try? camera.lockForConfiguration()) != nil {
@@ -199,7 +202,7 @@ final class ScannerViewController: UIViewController {
             let turning = (rotation.x * rotation.x + rotation.y * rotation.y + rotation.z * rotation.z).squareRoot()
             let shaking = (acceleration.x * acceleration.x + acceleration.y * acceleration.y
                            + acceleration.z * acceleration.z).squareRoot()
-            self.isSteady = turning < 0.22 && shaking < 0.08
+            self.isSteady = turning < 0.15 && shaking < 0.06
         }
     }
 
@@ -395,7 +398,8 @@ final class ScannerViewController: UIViewController {
         var text: String
         switch state {
         case .searching: text = "Dokument ins Bild halten"
-        case .tooSmall: text = "Näher herangehen"
+        case .tooSmall: text = "Näher herangehen – die Seite soll das Bild füllen"
+        case .cutOff: text = "Etwas weiter weg – die ganze Seite muss im Bild sein"
         case .moving: text = "Ruhig halten …"
         case .focusing: text = "Stelle scharf …"
         case .holding(let value):
@@ -606,9 +610,8 @@ final class ScannerViewController: UIViewController {
             }
             let settings = AVCapturePhotoSettings()
             settings.flashMode = .off
-            let highest = self.photoOutput.maxPhotoQualityPrioritization
-            settings.photoQualityPrioritization = highest.rawValue < AVCapturePhotoOutput.QualityPrioritization.balanced.rawValue
-                ? highest : .balanced
+            // Best image quality the camera offers: a moment slower, but small print stays crisp.
+            settings.photoQualityPrioritization = self.photoOutput.maxPhotoQualityPrioritization
             self.photoOutput.capturePhoto(with: settings, delegate: self)
         }
     }
@@ -649,8 +652,8 @@ final class ScannerViewController: UIViewController {
         }
         let longSide = max(output.extent.width, output.extent.height)
         guard longSide > 16 else { return .failed }
-        if longSide > 2600 {
-            let factor = 2600 / longSide
+        if longSide > ScanSession.storedLongSide {
+            let factor = ScanSession.storedLongSide / longSide
             output = output.transformed(by: CGAffineTransform(scaleX: factor, y: factor))
         }
         guard let cgImage = ciContext.createCGImage(output, from: output.extent.integral) else { return .failed }

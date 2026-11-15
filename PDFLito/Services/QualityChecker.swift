@@ -14,7 +14,7 @@ enum QualityChecker {
     static func thresholds(for strictness: Strictness) -> Thresholds {
         switch strictness {
         case .strict: return Thresholds(minimumSharpness: 0.26, minimumSharpnessWithLittleText: 0.34, minimumConfidence: 0.75)
-        case .normal: return Thresholds(minimumSharpness: 0.20, minimumSharpnessWithLittleText: 0.28, minimumConfidence: 0.6)
+        case .normal: return Thresholds(minimumSharpness: 0.22, minimumSharpnessWithLittleText: 0.28, minimumConfidence: 0.6)
         case .relaxed: return Thresholds(minimumSharpness: 0.18, minimumSharpnessWithLittleText: 0.23, minimumConfidence: 0.45)
         }
     }
@@ -24,8 +24,9 @@ enum QualityChecker {
     static let analysisLongSide = 1600
     static let minimumBrightness = 0.22
 
-    static func analyze(_ image: CGImage, strictness: Strictness) -> PageAnalysis {
-        let lines = TextRecognizer.recognize(image)
+    /// `recognized` passes in text that was already read from exactly this image.
+    static func analyze(_ image: CGImage, strictness: Strictness, recognized: [RecognizedLine]? = nil) -> PageAnalysis {
+        let lines = recognized ?? TextRecognizer.recognize(image)
         let characters = lines.reduce(0) { $0 + $1.text.count }
         let weighted = lines.reduce(0.0) { $0 + Double($1.confidence) * Double($1.text.count) }
         let confidence = characters > 0 ? weighted / Double(characters) : 0
