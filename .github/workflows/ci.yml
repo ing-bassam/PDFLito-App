@@ -82,3 +82,4 @@ jobs:
             build/Tests.xcresult
             build/screenshots
           if-no-files-found: ignore
+          retention-days: 3
