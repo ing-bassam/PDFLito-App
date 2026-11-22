@@ -163,6 +163,7 @@ jobs:
         with:
           name: screenshots
           path: fastlane/screenshots/de-DE
+          retention-days: 1
 
   appstore:
     name: App Store (Texte, Screenshots, Einreichung)
